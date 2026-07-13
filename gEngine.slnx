@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/gEngine/gEngine.csproj" />
+  </Folder>
+  <Folder Name="/samples/">
+    <Project Path="samples/gEngine.Sample/gEngine.Sample.csproj" />
+  </Folder>
+</Solution>
