@@ -51,6 +51,11 @@ loop.Run();
 `Shutdown`. Vedi [`samples/gEngine.Sample/SampleGame.cs`](samples/gEngine.Sample/SampleGame.cs)
 per un esempio completo e commentato.
 
+## Roadmap
+
+Il piano di sviluppo (obiettivo: mini engine **3D** con editor visuale) è in
+[`docs/ROADMAP.md`](docs/ROADMAP.md).
+
 ## Licenza
 
 [MIT](LICENSE)
