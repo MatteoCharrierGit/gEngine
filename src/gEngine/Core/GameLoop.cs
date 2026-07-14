@@ -1,4 +1,5 @@
 ﻿using gEngine.Input;
+using gEngine.Log;
 using Raylib_cs;
 
 namespace gEngine.Core;
@@ -12,13 +13,19 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
 
     private float _gameAccumulator = 0;
     private const float FixedDeltaTime = 1f / 60;
-    
+
+    private readonly ILogger _logger = new ConsoleLogger();
     
     private InputHandler _inputHandler = new InputHandler();
 
 
     public void Run()
     {
+        _logger.Info(LogCategories.Engine, "Game Loop initialized");
+        _logger.Warn(LogCategories.Engine, "Game Loop initialized");
+        _logger.Error(LogCategories.Engine, "Game Loop initialized");
+        _logger.Debug(LogCategories.Engine, "Game Loop initialized");
+        
         Raylib.InitWindow(WindowWidth, WindowHeight, Title);
         Raylib.InitAudioDevice();
         Raylib.SetTargetFPS(60);

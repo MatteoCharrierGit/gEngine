@@ -1,7 +1,8 @@
-﻿namespace gEngine.Ecs.Component;
+﻿using System.Numerics;
+
+namespace gEngine.Ecs.Component;
 
 public struct VelocityComponent
 {
-    public float X; 
-    public float Y;
+    public Vector3 Velocity;
 }

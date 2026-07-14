@@ -1,7 +1,7 @@
 ﻿using gEngine.Ecs.Base;
 using gEngine.Ecs.System;
 
-namespace gEngine.Ecs.Component;
+namespace gEngine.Ecs.Component.Event;
 
 public struct Collision2DComponentEvent
 {
