@@ -11,5 +11,6 @@ public enum GameAction
     Cancel,
     Attack,
     
-    CameraCenter
+    CameraCenter,
+    CameraFreeFly
 }

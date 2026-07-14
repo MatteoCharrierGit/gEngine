@@ -1,4 +1,5 @@
-﻿using Raylib_cs;
+﻿using System.Numerics;
+using Raylib_cs;
 
 namespace gEngine.Input;
 
@@ -41,7 +42,7 @@ public class InputHandler
         }
     }
     
-    private GameActionState GetKeyState(KeyboardKey key)
+    private GameActionState GetKeyState(InputBinding key)
     {
         if (IsActionPressed(key))
             return GameActionState.KeyPressed;
@@ -55,19 +56,19 @@ public class InputHandler
         return GameActionState.Default;
     }
 
-    private bool IsActionPressed(KeyboardKey key)
+    private bool IsActionPressed(InputBinding key)
     {
-        return Raylib.IsKeyPressed(key);
+        return key.IsPressed();
     }
 
-    private bool IsActionReleased(KeyboardKey key)
+    private bool IsActionReleased(InputBinding key)
     {
-        return Raylib.IsKeyReleased(key);
+        return key.IsReleased();
     }
 
-    private bool IsActionDown(KeyboardKey key)
+    private bool IsActionDown(InputBinding key)
     {
-        return Raylib.IsKeyDown(key);
+        return key.IsDown();
     }
 
     private void Init()
@@ -93,6 +94,16 @@ public class InputHandler
     public bool IsActionReleased(GameAction action)
     {
         return State.GetValueOrDefault(action, GameActionState.Default) ==  GameActionState.KeyUp;
+    }
+
+    public Vector2 GetMouseDelta()
+    {
+        return Raylib.GetMouseDelta();
+    }
+
+    public Vector2 GetMousePosition()
+    {
+        return Raylib.GetMousePosition();
     }
     
 }

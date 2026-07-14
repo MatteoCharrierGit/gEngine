@@ -4,9 +4,9 @@ namespace gEngine.Input;
 
 public class GameActionContext
 {
-    public Dictionary<GameAction, List<KeyboardKey>> Context { get; set; } = new();
+    public Dictionary<GameAction, List<InputBinding>> Context { get; set; } = new();
 
-    public void AddToContext(List<KeyboardKey> keys, GameAction action)
+    public void AddToContext(List<InputBinding> keys, GameAction action)
     {
         Context.TryAdd(action, keys);
     }

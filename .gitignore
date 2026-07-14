@@ -8,8 +8,5 @@ obj/
 *.user
 .claude/
 
-# Local-only sample: gioco personale, non pubblicato (asset non redistribuibili)
-samples/Sandbox/
-
-# Solution locale che include Sandbox
-gEngine.local.slnx
+# Sandbox: asset non redistribuibili (sprite/audio), il codice invece è tracciato
+samples/Sandbox/assets/

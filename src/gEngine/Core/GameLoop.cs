@@ -21,11 +21,6 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
 
     public void Run()
     {
-        _logger.Info(LogCategories.Engine, "Game Loop initialized");
-        _logger.Warn(LogCategories.Engine, "Game Loop initialized");
-        _logger.Error(LogCategories.Engine, "Game Loop initialized");
-        _logger.Debug(LogCategories.Engine, "Game Loop initialized");
-        
         Raylib.InitWindow(WindowWidth, WindowHeight, Title);
         Raylib.InitAudioDevice();
         Raylib.SetTargetFPS(60);

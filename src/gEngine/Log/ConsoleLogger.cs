@@ -12,8 +12,8 @@ public sealed class ConsoleLogger : ILogger
         var log = new LogMessage(
             DateTime.Now,
             level,
-            category,
-            message
+            message,
+            category
         );
 
         Write(log);

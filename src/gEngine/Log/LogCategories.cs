@@ -2,10 +2,10 @@
 
 public static class LogCategories
 {
-    public static readonly string Engine = "Engine";
-    public static readonly string Renderer = "Renderer";
-    public static readonly string Audio = "Audio";
-    public static readonly string Physics = "Physics";
-    public static readonly string Ecs = "Ecs";
-    public static readonly string Window = "Window";
+    public const string Engine = "Engine";
+    public const string Renderer = "Renderer";
+    public const string Audio = "Audio";
+    public const string Physics = "Physics";
+    public const string Ecs = "Ecs";
+    public const string Window = "Window";
 }

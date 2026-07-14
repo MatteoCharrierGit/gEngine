@@ -21,10 +21,10 @@ public class SampleGame : IGame
     {
         var context = new GameActionContext();
 
-        context.AddToContext([KeyboardKey.W], GameAction.MoveUp);
-        context.AddToContext([KeyboardKey.S], GameAction.MoveDown);
-        context.AddToContext([KeyboardKey.A], GameAction.MoveLeft);
-        context.AddToContext([KeyboardKey.D], GameAction.MoveRight);
+        context.AddToContext([new InputBinding(){KKey = KeyboardKey.W}], GameAction.MoveUp);
+        context.AddToContext([new InputBinding(){KKey = KeyboardKey.S}], GameAction.MoveDown);
+        context.AddToContext([new InputBinding(){KKey = KeyboardKey.A}], GameAction.MoveLeft);
+        context.AddToContext([new InputBinding(){KKey = KeyboardKey.D}], GameAction.MoveRight);
 
         inputHandler.SetActiveContext(context);
 
