@@ -1,15 +1,20 @@
-﻿using gEngine.Assets;
+﻿using System.Text.Json;
+using gEngine.Assets;
 using gEngine.Core;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
+using gEngine.Ecs.System;
 using gEngine.Input;
+using gEngine.Rendering;
 using gEngine.Rendering.Editor;
+using gEngine.Scenes;
+using gEngine.Scenes.Json;
 using Raylib_cs;
 using Sandbox.Systems;
 using Camera3D = gEngine.Rendering.Camera3D;
-using Path = System.IO.Path;
-using Vector2 = System.Numerics.Vector2;
+using Color = gEngine.Rendering.Color;
+using Matrix4x4 = System.Numerics.Matrix4x4;
 using Vector3 = System.Numerics.Vector3;
 using World = gEngine.Ecs.Base.World;
 
@@ -22,21 +27,20 @@ public class SandboxGame() : IGame
     
     private Camera3D _camera =  new Camera3D()
     {
-        Position = new Vector3(0, 7, 6),
-        Target = new Vector3(0, 0, 0),
+        Position = new Vector3(0, 18, 28),
+        Target = new Vector3(0, 6, 0),
         Up = Vector3.UnitY,
         FovY = 60f,
         Projection = CameraProjection.Perspective,  
     };
     
     private FreeFlyCamera3DController _freeFlyCamera3DController;
-    
-    
-    private Entity PlayerEntity { get; set; }
-    
+
+
     private List<IInputSystem>? _inputSystems;
     private List<ISimulationSystem>? _simulationSystems;
     private List<ILateSystem>? _lateSystems;
+    private List<IRenderSystem>? _renderSystems;
     
     
     private readonly AssetManager _assetManager = new AssetManager(AppContext.BaseDirectory,  "assets");
@@ -45,22 +49,6 @@ public class SandboxGame() : IGame
     private Music _introSound;
     
 
-    private const int FloorX = 0;
-    private const int FloorY = 900;
-    private const int FloorWidth = 1920;
-    private const int FloorHeight = 40;
-
-    private static readonly (Vector3 Position, float Width, float Depth, float Height, Color Color)[] Buildings =
-    [
-        (new Vector3(6, 0, 4), 2f, 2f, 10f, Color.DarkGray),
-        (new Vector3(-5, 0, 6), 3f, 3f, 16f, Color.Gray),
-        (new Vector3(-8, 0, -3), 2f, 2f, 6f, Color.DarkGray),
-        (new Vector3(9, 0, -6), 2.5f, 2.5f, 20f, Color.Gray),
-        (new Vector3(3, 0, -9), 2f, 2f, 12f, Color.DarkGray),
-        (new Vector3(-3, 0, -12), 3f, 3f, 8f, Color.Gray),
-    ];
-
-    
     public void Init(InputHandler inputHandler)
     {
 
@@ -78,24 +66,26 @@ public class SandboxGame() : IGame
         _inputSystems = [];
         _simulationSystems = [];
         _lateSystems = [];
-        
-        PlayerEntity = _world.CreateEntity();
-        
-        _world.AddComponent(PlayerEntity, new TransformComponent()
-        {
-            Position = Vector3.Zero,
-        });
-        _world.AddComponent(PlayerEntity, new VelocityComponent()
-        {
-            Velocity = Vector3.Zero,
-        });
-        _world.AddComponent(PlayerEntity, new PlayerComponent());
+        _renderSystems = [];
+
+        // Registry dei componenti: built-in dell'engine (Transform, MeshRenderer)
+        // + componenti custom del gioco (Player, Velocity), stesso formato JSON.
+        var registry = new SceneComponentRegistry();
+        registry.RegisterEngineDefaults();
+        registry.Register("Player", data => data.Deserialize<PlayerComponent>(SceneJson.Options));
+        registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJson.Options));
+
+        // Scena caricata da file: niente entità hardcoded qui.
+        var scenePath = Path.Combine(AppContext.BaseDirectory, "assets", "scenes", "city.json");
+        var scene = JsonSceneLoader.Load(scenePath);
+        SceneInstantiator.Instantiate(scene, _world, registry);
 
         AddSystem(new MovementSystem());
         AddSystem(new PlayerInputSystem(inputHandler));
         AddSystem(new CameraFollowSystem(_camera, inputHandler));
-        
-        
+        AddSystem(new MeshRenderSystem());
+
+
         // _playerSprite = _assetManager.LoadTexture2D("sprites/shan_shan_idle0.png");
         // _introSound = _assetManager.LoadMusicStream(Path.Combine("audio", "Before_the_Light_Fades.mp3"));
         
@@ -125,43 +115,36 @@ public class SandboxGame() : IGame
             system.OnUpdate(_world, fixedDeltaTime);
     }
 
-    public void Draw()
+    public void Draw(IRenderer renderer)
     {
         
         var (_, transform, _) = _world.Query<TransformComponent, VelocityComponent>().First();
         
-        Raylib.BeginDrawing();
-        Raylib.ClearBackground(Color.White);
-        Raylib.DrawText("GameTime: " +  Raylib.GetTime(), 20, 20, 30, Color.Black);
+        renderer.BeginFrame();
+        renderer.ClearBackground(Color.White);
+        renderer.DrawText("GameTime: " +  Raylib.GetTime(), 20, 20, 30, Color.Black);
 
         const int hudPadding = 20;
         const int hudBoxWidth = 220;
         const int hudBoxHeight = 40;
         var hudBoxX = hudPadding;
-        var hudBoxY = Raylib.GetScreenHeight() - hudBoxHeight - hudPadding;
+        var hudBoxY = renderer.GetScreenHeight() - hudBoxHeight - hudPadding;
 
-        Raylib.DrawRectangle(hudBoxX, hudBoxY, hudBoxWidth, hudBoxHeight, new Color(0, 0, 0, 150));
-        Raylib.DrawText($"Pos: ({transform.Position.X:F0}, {transform.Position.Y:F0})", hudBoxX + 10, hudBoxY + 10, 20, Color.White);
+        renderer.DrawRectangle(hudBoxX, hudBoxY, hudBoxWidth, hudBoxHeight, new Color(0, 0, 0, 150));
+        renderer.DrawText($"Pos: ({transform.Position.X:F0}, {transform.Position.Y:F0})", hudBoxX + 10, hudBoxY + 10, 20, Color.White);
         
 
-        Raylib.BeginMode3D(_camera.ToRaylibCamera3D());
+        renderer.Begin3D(_camera);
 
-        Raylib.DrawPlane(new Vector3(0, 0, 0), new Vector2(40, 40), Color.LightGray);
-        Raylib.DrawGrid(20, 1.0f);
+        renderer.DrawMesh(new DrawMeshCommand(MeshKind.Plane, Matrix4x4.Identity, new Vector3(40, 0, 40), Color.LightGray, false));
+        renderer.DrawMesh(new DrawMeshCommand(MeshKind.Grid, Matrix4x4.Identity, new Vector3(20, 1, 0), Color.Gray, false));
 
-        foreach (var building in Buildings)
-        {
-            var center = new Vector3(building.Position.X, building.Height / 2f, building.Position.Z);
-            Raylib.DrawCube(center, building.Width, building.Height, building.Depth, building.Color);
-            Raylib.DrawCubeWires(center, building.Width, building.Height, building.Depth, Color.Black);
-        }
+        if (_renderSystems != null)
+            foreach (var system in _renderSystems)
+                system.OnRender(_world, renderer, renderer.GetFrameTime());
 
-        Raylib.DrawCube(transform.Position, 1, 1, 1, Color.Red);
-
-        Raylib.EndMode3D();
-        
-        
-        Raylib.EndDrawing();
+        renderer.End3D();
+        renderer.EndFrame();
         
         // audio management
         Raylib.UpdateMusicStream(_introSound);
@@ -187,6 +170,12 @@ public class SandboxGame() : IGame
     private void AddSystem(ILateSystem system)
     {
         _lateSystems?.Add(system);
+        system.OnCreate(_world);
+    }
+
+    private void AddSystem(IRenderSystem system)
+    {
+        _renderSystems?.Add(system);
         system.OnCreate(_world);
     }
 }

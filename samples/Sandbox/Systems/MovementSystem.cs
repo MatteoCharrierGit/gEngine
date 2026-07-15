@@ -17,10 +17,12 @@ public class MovementSystem : ISimulationSystem
     {
         foreach (var (entity, transform, velocity) in world.Query<TransformComponent, VelocityComponent>())
         {
-            world.AddComponent(entity, new TransformComponent()
-            {
-                Position = new Vector3(transform.Position.X + velocity.Velocity.X * dt, transform.Position.Y + velocity.Velocity.Y * dt, transform.Position.Z  + velocity.Velocity.Z * dt),
-            });
+            // Muta solo la copia locale e riscrivi l'intero struct: così Rotation
+            // e Scale si conservano. Costruire un nuovo TransformComponent con la
+            // sola Position le azzererebbe (Scale=0 → mesh invisibile).
+            var updated = transform;
+            updated.Position += velocity.Velocity * dt;
+            world.AddComponent(entity, updated);
         }
     }
 }

@@ -10,6 +10,7 @@ public interface IRenderer
     void Begin3D(Camera3D camera);
     void End3D();
     void ClearBackground(Color c);
+    void Shutdown();
 
 
     // Primitives

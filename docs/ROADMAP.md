@@ -28,12 +28,19 @@ Il cuore matematico, già in ottica 3D.
   - [x] `Position : Vector3`
   - [x] `Rotation : Quaternion` (in 2D useresti solo la Z)
   - [x] `Scale : Vector3`
-- [ ] **World matrix** dal transform
-  - [ ] Comporre `Matrix4x4 = Scale * Rotation * Translation`
-  - [ ] Helper per direzioni (forward/right/up) dal quaternion
+- [x] **World matrix** dal transform (`src/gEngine/MathUtils/TransformExtensions.cs`)
+  - [x] Comporre `Matrix4x4 = Scale * Rotation * Translation` — `GetLocalMatrix()`
+    (extension method su `TransformComponent`; il componente resta dati puri)
+  - [x] Helper per direzioni (forward/right/up) dal quaternion —
+    `GetForward()`/`GetRight()`/`GetUp()` via `Vector3.Transform(UnitZ/UnitX/UnitY, Rotation)`;
+    convenzione base fissata: Forward = `+UnitZ`, Right = `+UnitX`, Up = `+UnitY`
+  - ⚠️ Nota: il namespace è `gEngine.MathUtils`, **non** `gEngine.Math` — quest'ultimo
+    farebbe shadowing di `System.Math` in tutto il progetto
 - [x] **Migrazione** del codice esistente da `Position` a `Transform`
-  - [x] Aggiornare sample e sistemi (`Sandbox`, `gEngine.Sample` usano già `TransformComponent`)
-  - [x] Ricordare il **write-back** dopo la mutazione (struct = copia) — pattern già seguito in `MovementSystem`/`SampleGame`
+  - [x] Aggiornare sample e sistemi (`Sandbox` usa già `TransformComponent`)
+  - [x] Ricordare il **write-back** dopo la mutazione (struct = copia) — pattern
+    seguito in `MovementSystem` (bug del write-back parziale che azzerava
+    `Scale`/`Rotation` individuato e corretto)
 - [ ] *(rimandabile)* **Gerarchia di transform** (parent/child)
   - [ ] `Parent`/figli, transform locale vs mondo
   - [ ] Ricalcolo world matrix (dirty flag)
@@ -42,7 +49,7 @@ Il cuore matematico, già in ottica 3D.
 
 ---
 
-## Fase 2 — Fondamenta rendering 3D 🟡🔴
+## Fase 2 — Fondamenta rendering 3D 🟢🟡
 
 Da "il gioco disegna a mano" a "un sistema disegna la scena". Il punto
 chiave: l'ECS non deve chiamare raylib direttamente, altrimenti cambiare
@@ -58,12 +65,14 @@ importare `Raylib_cs`.
   - [x] `BeginMode3D`/`EndMode3D` nel passo di rendering
 - [x] **Camera di debug free-fly / orbit** (fondamentale per iterare in 3D)
   - [x] Movimento WASD + mouse look, oppure orbit attorno a un target
-- [ ] **Astrazione renderer (`src/gEngine/Rendering/`)**
+- [x] **Astrazione renderer (`src/gEngine/Rendering/`)**
   - [x] `Color.cs` — struct `Color(byte R,G,B,A)` con costanti statiche
     (White, Black, Red, Gray, DarkGray, LightGray); sostituisce
     `Raylib_cs.Color` in component/system engine-side
   - [x] `MeshKind.cs` — `enum { Cube, Plane, Grid, Model }`
-  - [x] `DrawMeshCommand.cs` — `readonly record struct DrawMeshCommand(MeshKind Kind, Vector3 Position, Vector3 Size, Color Tint, bool Wireframe)`
+  - [x] `DrawMeshCommand.cs` — `readonly record struct DrawMeshCommand(MeshKind Kind, Matrix4x4 World, Vector3 Size, Color Tint, bool Wireframe)`
+    — porta la **world matrix** completa (scala/rotazione/posizione) invece della sola
+    `Position`; `Size` resta usato solo dai path immediate-mode `Plane`/`Grid`
   - [x] `IRenderer.cs` — facade su tutto ciò che oggi chiama raylib nei
     sample: `BeginFrame`, `EndFrame`, `Begin3D(Camera3D)`, `End3D`,
     `DrawMesh(in DrawMeshCommand)` (unico ingresso per le primitive:
@@ -73,35 +82,56 @@ importare `Raylib_cs`.
     converte `Color` → `Raylib_cs.Color` e chiama `Raylib.*`; `DrawMesh`
     dispatcha su `MeshKind` (`Cube`/`Plane`/`Grid` implementati, `Model`
     lancia `NotSupportedException` finché non c'è caricamento modelli)
-  - [ ] `IGame.Draw()` diventa `Draw(IRenderer renderer)`; `GameLoop`
+    - [x] `Cube`: genera **una volta** una mesh cubo unitaria (`GenMeshCube(1,1,1)`)
+      + material di default nel costruttore (riusati ogni frame, colore mutato via
+      `Maps[Albedo].Color`), poi `Raylib.DrawMesh(mesh, material, world)`; il
+      `Wireframe` ridisegna la stessa mesh con `Rlgl.EnableWireMode()`
+    - [x] `Shutdown()` libera mesh/material (chiamato da `GameLoop` prima di
+      `CloseWindow`); il progetto richiede `AllowUnsafeBlocks` per scrivere
+      `Material.Maps` (puntatore nativo)
+    - ⚠️ Nota appresa: `Raylib.DrawMesh` è un P/Invoke diretto e vuole matrici
+      **column-major** (layout raylib), mentre `System.Numerics.Matrix4x4` è
+      row-major → la world matrix va **trasposta** prima della chiamata nativa
+      (verificato: `raylib == transpose(numerics)`)
+    - ⚠️ Nota: il wireframe della mesh mostra anche le **diagonali** delle facce
+      (il cubo è triangolato, 2 triangoli per faccia) — diverso dai 12 spigoli
+      del vecchio `DrawCubeWires`
+  - [x] `IGame.Draw()` diventa `Draw(IRenderer renderer)`; `GameLoop`
     costruisce il `RayLibRenderer` (dopo `InitWindow`) e lo possiede —
     i giochi non toccano più raylib direttamente in `Draw`
-- [ ] **Componenti disegnabili**
-  - [ ] `MeshRendererComponent` (`src/gEngine/Ecs/Component/`) — struct
-    dati puri: `MeshKind Kind; Vector3 Size; Color Tint; bool Wireframe; bool Visible`
-    (niente riferimenti a raylib)
-- [ ] **`RenderSystem`**
-  - [ ] `IRenderSystem` (`src/gEngine/Ecs/Interfaces/System/`) —
+- [x] **Componenti disegnabili**
+  - [x] `MeshRendererComponent` (`src/gEngine/Ecs/Component/`) — dati puri:
+    `MeshKind Kind; Vector3 Size; Color Tint; bool Wireframe; bool Visible`
+    (niente riferimenti a raylib). *(attualmente `class`, non `struct`)*
+- [x] **`RenderSystem`**
+  - [x] `IRenderSystem` (`src/gEngine/Ecs/Interfaces/System/`) —
     `interface IRenderSystem : ISystem { void OnRender(World world, IRenderer renderer, float frameDt); }`,
     distinto da `IInputSystem`/`ISimulationSystem`/`ILateSystem` perché
     gira ogni frame in `Draw()`, non nel fixed-step `Update()`
-  - [ ] `MeshRenderSystem` (`src/gEngine/Ecs/System/`) — implementazione di
+  - [x] `MeshRenderSystem` (`src/gEngine/Ecs/System/`) — implementazione di
     default fornita dall'engine: `world.Query<TransformComponent, MeshRendererComponent>()`
-    → `renderer.DrawMesh(...)`. È il "system che cicla per mesh render
-    component", ma parla solo con `IRenderer`, mai con raylib
-  - [ ] Applica la world matrix e chiama `DrawModel`/`DrawMesh`
-  - [ ] Depth test e back-face culling (default Raylib)
+    → `renderer.DrawMesh(...)` (salta se `!Visible`). Parla solo con
+    `IRenderer`, mai con raylib
+  - [x] Applica la world matrix: `Matrix4x4.CreateScale(Size) * transform.GetLocalMatrix()`
+    per ogni entità, passata dentro il `DrawMeshCommand`
+  - [x] Depth test e back-face culling (default Raylib)
+  - [x] `SandboxGame` ora crea i 6 edifici + il player come **entità** con
+    `Transform`+`MeshRenderer` (in `Init()`), e in `Draw()` itera i
+    `_renderSystems` invece di disegnare i building a mano; la creazione
+    delle entità resta nel gioco (che conosce la scena), **non** nel system
 - [ ] **Render order / layer** (opachi vs trasparenti)
 - [ ] Ambientazione statica (grid/plane del pavimento) resta un
   `DrawMeshCommand` costruito al volo dal gioco e passato a
   `renderer.DrawMesh(...)`, **non** un'entità ECS — non c'è ancora un caso
   d'uso per trattarla come dato di scena
 
-**Milestone:** una scena di cubi/sfere navigabile con camera 3D. 🎉
+**Milestone:** una scena di cubi/sfere navigabile con camera 3D. 🎉 ✅
+*(pipeline mesh via ECS completata; restano da fare solo `render order`/layer
+opachi-vs-trasparenti)*
 
 ---
 
-## Fase 3 — Scene management & serializzazione 🔴 *(fase pivot)*
+## Fase 3 — Scene management & serializzazione 🟢 *(fase pivot)*
 
 Rendere la scena un **file**. Precondizione dell'editor.
 
@@ -113,46 +143,50 @@ componente custom definito fuori dall'engine (es. `PlayerComponent`/
 senza modificare il loader dentro l'engine. Si usa invece un **registry di
 binder per tipo**, tenuto data-driven end-to-end:
 
-- [ ] **Registry dei componenti** (`src/gEngine/Scenes/`, no reflection —
+- [x] **Registry dei componenti** (`src/gEngine/Scenes/`, no reflection —
   registrazione esplicita)
-  - [ ] `IComponentBinder.cs` — `interface IComponentBinder { void Apply(World world, Entity entity, JsonElement data); }`
-  - [ ] `ComponentBinder<T>.cs` — `class ComponentBinder<T>(Func<JsonElement, T> parse) : IComponentBinder`,
+  - [x] `IComponentBinder.cs` — `interface IComponentBinder { void Apply(World world, Entity entity, JsonElement data); }`
+  - [x] `ComponentBinder<T>.cs` — `class ComponentBinder<T>(Func<JsonElement, T> parse) : IComponentBinder`,
     applica il componente con `world.AddComponent(entity, parse(data))`
-  - [ ] `SceneComponentRegistry.cs` — `Dictionary<string, IComponentBinder>`
+  - [x] `SceneComponentRegistry.cs` — `Dictionary<string, IComponentBinder>`
     con `Register<T>(string key, Func<JsonElement, T> parse)` e
-    `TryGet(string key, out IComponentBinder)`; la chiave è il nome usato
-    nel JSON (`"Transform"`, `"MeshRenderer"`, `"Player"`, `"Velocity"`, ...)
-  - [ ] L'engine registra i propri built-in (`Transform`, `MeshRenderer`)
+    `bool TryGet(string key, out IComponentBinder binder)`; la chiave è il nome
+    usato nel JSON (`"Transform"`, `"MeshRenderer"`, `"Player"`, `"Velocity"`, ...)
+  - [x] L'engine registra i propri built-in (`Transform`, `MeshRenderer`)
     via `SceneComponentRegistry.RegisterEngineDefaults()`; **Sandbox
     estende lo stesso registry** con i propri componenti custom in
     `SandboxGame.Init()`, prima di caricare la scena — l'estensibilità
     vive fuori dall'engine, senza toccare `gEngine.Scenes`
-- [ ] **Serializzazione** (JSON con `System.Text.Json`)
-  - [ ] `Scene.cs` — `class Scene { string Name; List<EntityDefinition> Entities; }`,
+- [x] **Serializzazione** (JSON con `System.Text.Json`)
+  - [x] `Scene.cs` — `class Scene { string Name; List<EntityDefinition> Entities; }`,
     `class EntityDefinition { Dictionary<string, JsonElement> Components; }`
     — nessun campo fisso, solo un bag chiave→dati grezzi
-  - [ ] `JsonSceneLoader.cs` — `Scene Load(string path)`, deserializza
+  - [x] `JsonSceneLoader.cs` — `Scene Load(string path)`, deserializza
     `{ name, entities: [ { components: { "Transform": {...}, "MeshRenderer": {...} } } ] }`
     senza interpretare i valori (restano `JsonElement` finché un binder
     non li legge)
-  - [ ] Converter per `Vector3` / `Quaternion` (usati dai parser dei
-    binder built-in, es. `TransformComponent`)
-- [ ] **`SceneInstantiator`** (sostituisce il concetto di `SceneManager`
+  - [x] Converter per `Vector3` / `Quaternion` / `Color` (`src/gEngine/Scenes/Json/`)
+    nel formato "a dizionario" (`{"x":..,"y":..,"z":..}`), più
+    `SceneJson.Options` condivise (`IncludeFields=true`, enum come stringa
+    via `JsonStringEnumConverter`) usate sia dai built-in sia dai custom
+- [x] **`SceneInstantiator`** (sostituisce il concetto di `SceneManager`
   per il caricamento — attivazione/switch di scena resta da valutare
   quando servirà davvero più di una scena)
-  - [ ] `SceneInstantiator.cs` — `static void Instantiate(Scene scene, World world, SceneComponentRegistry registry)`:
+  - [x] `SceneInstantiator.cs` — `static void Instantiate(Scene scene, World world, SceneComponentRegistry registry)`:
     per ogni entity crea `world.CreateEntity()`, poi per ogni coppia
     `(key, data)` cerca il binder nel registry e applica il componente.
-    Non conosce nessun tipo di componente specifico: è totalmente generico
-- [ ] **Refactor** del gioco
-  - [ ] `SandboxGame` **carica la scena da file** (`JsonSceneLoader` +
+    Non conosce nessun tipo di componente specifico: è totalmente generico.
+    Binder mancante → **fail-fast** (`InvalidOperationException`), non skip silenzioso
+- [x] **Refactor** del gioco
+  - [x] `SandboxGame` **carica la scena da file** (`JsonSceneLoader` +
     `SceneInstantiator`) invece di costruire l'array `Buildings` in codice
-  - [ ] `samples/Sandbox/assets/scenes/city.json` — scena d'esempio
-    versionata: i 6 edifici attuali + il player, con `Player`/`Velocity`
-    inclusi per dimostrare che i componenti custom di Sandbox funzionano
-    nello stesso file
+  - [x] `samples/Sandbox/assets/scenes/city.json` — scena d'esempio
+    versionata, con `Player`/`Velocity` custom nello stesso file a dimostrare
+    che i componenti di Sandbox funzionano data-driven. *(scena attuale:
+    "crown-city", 12 torri ad anello + 4 pilastri ruotati + player — anche
+    banco di prova delle rotazioni via quaternione)*
 
-**Milestone:** modifichi un file `.json` e la scena cambia senza ricompilare.
+**Milestone:** modifichi un file `.json` e la scena cambia senza ricompilare. ✅
 
 ---
 
@@ -241,7 +275,7 @@ Il "poi" che rende l'engine piacevole da usare.
 
 ## Riepilogo milestone
 
-1. **Fase 2** → scena di primitive navigabile in 3D.
-2. **Fase 3** → scena caricata da file (data-driven).
+1. ~~**Fase 2** → scena di primitive navigabile in 3D.~~ ✅
+2. ~~**Fase 3** → scena caricata da file (data-driven).~~ ✅
 3. **Fase 4** → editor: hierarchy + inspector + gizmi + save/load 
 4. **Fase 5** → modelli, luci e fisica 3D reali.

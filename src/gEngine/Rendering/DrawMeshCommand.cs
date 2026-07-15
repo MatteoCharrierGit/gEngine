@@ -2,9 +2,9 @@
 
 namespace gEngine.Rendering;
 
-public readonly record  struct DrawMeshCommand(
+public readonly record struct DrawMeshCommand(
     MeshKind Kind,
-    Vector3 Position,
+    Matrix4x4 World,
     Vector3 Size,
     Color Tint,
     bool Wireframe

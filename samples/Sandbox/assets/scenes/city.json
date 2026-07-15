@@ -1,0 +1,111 @@
+{
+  "name": "crown-city",
+  "entities": [
+    {
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 0.5, "z": 0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1, "y": 1, "z": 1 }, "Tint": { "r": 255, "g": 60, "b": 60 }, "Wireframe": true, "Visible": true },
+        "Velocity": { "Velocity": { "x": 0, "y": 0, "z": 0 } },
+        "Player": { "Name": "Player" }
+      }
+    },
+
+    {
+      "components": {
+        "Transform": { "Position": { "x": 10.0, "y": 2.5, "z": 0.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 5, "z": 2 }, "Tint": { "r": 231, "g": 76, "b": 60 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 8.66, "y": 3.5, "z": 5.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 7, "z": 2 }, "Tint": { "r": 230, "g": 126, "b": 34 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 5.0, "y": 5.0, "z": 8.66 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 10, "z": 2 }, "Tint": { "r": 241, "g": 196, "b": 15 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 0.0, "y": 7.0, "z": 10.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 14, "z": 2 }, "Tint": { "r": 163, "g": 200, "b": 40 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -5.0, "y": 8.5, "z": 8.66 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 17, "z": 2 }, "Tint": { "r": 46, "g": 204, "b": 113 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -8.66, "y": 9.5, "z": 5.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 19, "z": 2 }, "Tint": { "r": 26, "g": 188, "b": 156 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -10.0, "y": 8.5, "z": 0.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 17, "z": 2 }, "Tint": { "r": 52, "g": 152, "b": 219 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -8.66, "y": 7.0, "z": -5.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 14, "z": 2 }, "Tint": { "r": 41, "g": 128, "b": 185 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -5.0, "y": 5.0, "z": -8.66 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 10, "z": 2 }, "Tint": { "r": 142, "g": 68, "b": 173 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 0.0, "y": 3.5, "z": -10.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 7, "z": 2 }, "Tint": { "r": 155, "g": 89, "b": 182 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 5.0, "y": 2.5, "z": -8.66 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 5, "z": 2 }, "Tint": { "r": 231, "g": 76, "b": 120 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 8.66, "y": 2.0, "z": -5.0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 4, "z": 2 }, "Tint": { "r": 211, "g": 84, "b": 141 }, "Wireframe": true, "Visible": true }
+      }
+    },
+
+    {
+      "components": {
+        "Transform": { "Position": { "x": 3.18, "y": 7.0, "z": 3.18 }, "Rotation": { "x": 0, "y": 0.38268, "z": 0, "w": 0.92388 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1.2, "y": 14, "z": 1.2 }, "Tint": { "r": 236, "g": 240, "b": 241 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -3.18, "y": 7.0, "z": 3.18 }, "Rotation": { "x": 0, "y": 0.38268, "z": 0, "w": 0.92388 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1.2, "y": 14, "z": 1.2 }, "Tint": { "r": 236, "g": 240, "b": 241 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": -3.18, "y": 7.0, "z": -3.18 }, "Rotation": { "x": 0, "y": 0.38268, "z": 0, "w": 0.92388 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1.2, "y": 14, "z": 1.2 }, "Tint": { "r": 236, "g": 240, "b": 241 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "components": {
+        "Transform": { "Position": { "x": 3.18, "y": 7.0, "z": -3.18 }, "Rotation": { "x": 0, "y": 0.38268, "z": 0, "w": 0.92388 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1.2, "y": 14, "z": 1.2 }, "Tint": { "r": 236, "g": 240, "b": 241 }, "Wireframe": true, "Visible": true }
+      }
+    }
+  ]
+}

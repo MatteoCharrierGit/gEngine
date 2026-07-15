@@ -8,5 +8,6 @@ obj/
 *.user
 .claude/
 
-# Sandbox: asset non redistribuibili (sprite/audio), il codice invece è tracciato
-samples/Sandbox/assets/
+# Sandbox: sprite/audio non redistribuibili esclusi, ma i dati di scena (JSON) sono tracciati
+samples/Sandbox/assets/*
+!samples/Sandbox/assets/scenes/

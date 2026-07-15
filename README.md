@@ -1,9 +1,8 @@
 # gEngine
 
-Un piccolo game engine 2D scritto in C#, nato come progetto per imparare il
-linguaggio e ragionare su architettura ECS, game loop e input. Costruito sopra
-[Raylib](https://www.raylib.com/) (rendering/finestra/audio) e
-[Aether.Physics2D](https://github.com/nkast/Aether.Physics2D) (fisica).
+Un piccolo game engine 3D scritto in C#, nato come progetto per imparare il
+linguaggio e ragionare su architettura ECS, game loop, input e rendering.
+Costruito sopra [Raylib](https://www.raylib.com/) (rendering/finestra/audio).
 
 > Progetto didattico, work in progress. Le API cambiano spesso.
 
@@ -14,17 +13,18 @@ gEngine/
 ├─ src/
 │  └─ gEngine/            # la libreria engine
 └─ samples/
-   └─ gEngine.Sample/     # esempio minimale d'uso dell'engine
+   └─ Sandbox/            # scena 3D d'esempio (caricata da file JSON)
 ```
 
 - **`src/gEngine`** — la libreria vera e propria. Contiene:
   - `Core/` — game loop e interfaccia `IGame`
   - `Ecs/` — Entity, World, storage dei componenti, query, sistemi
   - `Input/` — mappatura tasti → azioni di gioco
-  - `Rendering/` — camera 2D
+  - `Rendering/` — camera 3D, mesh e renderer astratto (`IRenderer`)
+  - `Scenes/` — caricamento scene da JSON (registry di componenti data-driven)
   - `Assets/` — caricamento texture/audio
-- **`samples/gEngine.Sample`** — un esempio essenziale: apre una finestra e
-  muove un'entità con WASD. Nessun asset esterno, gira appena clonato.
+- **`samples/Sandbox`** — una scena 3D navigabile: una "città" di cubi caricata
+  da `assets/scenes/city.json`, con player controllabile a WASD e camera 3D.
 
 ## Requisiti
 
@@ -33,7 +33,7 @@ gEngine/
 ## Come eseguire l'esempio
 
 ```bash
-dotnet run --project samples/gEngine.Sample
+dotnet run --project samples/Sandbox
 ```
 
 ## Usare l'engine
@@ -47,9 +47,10 @@ var loop = new GameLoop(1280, 720, "Il mio gioco", new MyGame());
 loop.Run();
 ```
 
-`IGame` espone quattro metodi: `Init`, `Update` (a passo fisso), `Draw` e
-`Shutdown`. Vedi [`samples/gEngine.Sample/SampleGame.cs`](samples/gEngine.Sample/SampleGame.cs)
-per un esempio completo e commentato.
+`IGame` espone quattro metodi: `Init`, `Update` (a passo fisso),
+`Draw(IRenderer)` e `Shutdown`. Vedi
+[`samples/Sandbox/SandboxGame.cs`](samples/Sandbox/SandboxGame.cs)
+per un esempio completo.
 
 ## Roadmap
 
