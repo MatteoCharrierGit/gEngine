@@ -22,5 +22,11 @@ public class Scene
 /// </summary>
 public class EntityDefinition
 {
+    /// <summary>
+    /// Nome opzionale dell'entità nella scena. Serve solo come <b>bersaglio</b> di
+    /// riferimenti da altre entità (es. il campo <c>Parent</c>); non finisce nel World.
+    /// </summary>
+    public string? Name { get; set; }
+
     public Dictionary<string, JsonElement> Components { get; set; } = new();
 }

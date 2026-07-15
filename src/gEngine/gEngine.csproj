@@ -9,7 +9,13 @@
 
   <ItemGroup>
     <PackageReference Include="Aether.Physics2D" Version="2.2.0" />
+    <PackageReference Include="BepuPhysics" Version="2.4.0" />
     <PackageReference Include="Raylib-cs" Version="8.0.0" />
+  </ItemGroup>
+
+  <!-- Shader copiati in output/Shaders/ e propagati ai progetti che referenziano l'engine. -->
+  <ItemGroup>
+    <None Include="Shaders\**" CopyToOutputDirectory="PreserveNewest" Link="Shaders\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
 </Project>

@@ -1,4 +1,5 @@
-﻿using gEngine.Input;
+﻿using gEngine.Assets;
+using gEngine.Input;
 using gEngine.Log;
 using gEngine.Rendering;
 using Raylib_cs;
@@ -17,6 +18,7 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
 
     private readonly ILogger _logger = new ConsoleLogger();
     private IRenderer? _renderer = null;
+    private AssetManager? _assetManager = null;
     private InputHandler _inputHandler = new InputHandler();
 
 
@@ -24,15 +26,19 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
     {
         Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
-        
-        
+
+
         Raylib.InitWindow(WindowWidth, WindowHeight, Title);
         Raylib.InitAudioDevice();
         Raylib.SetTargetFPS(60);
 
-        _renderer = new RayLibRenderer();
-        
-        Game.Init(_inputHandler);
+        // GameLoop possiede i due adapter raylib e li collega: il renderer risolve i
+        // ModelHandle attraverso lo stesso backend che carica gli asset.
+        var assetBackend = new RayLibAssetBackend();
+        _assetManager = new AssetManager(AppContext.BaseDirectory, "assets", assetBackend);
+        _renderer = new RayLibRenderer(assetBackend);
+
+        Game.Init(_inputHandler, _assetManager);
 
         while (!Raylib.WindowShouldClose())
         {
@@ -44,11 +50,12 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
                 Game.Update(FixedDeltaTime, _inputHandler);
                 _gameAccumulator -= FixedDeltaTime;
             }
-            
+
             Game.Draw(_renderer);
         }
-        
+
         Game.Shutdown();
+        _assetManager?.UnloadAll();   // scarica le risorse GPU prima di chiudere la finestra
         _renderer?.Shutdown();
         Raylib.CloseWindow();
     }

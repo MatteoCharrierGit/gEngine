@@ -1,0 +1,98 @@
+{
+  "name": "demo-everything",
+  "entities": [
+    {
+      "name": "player",
+      "_comment": "Player: Transform + MeshRenderer + Velocity + Player (custom). Serve almeno un'entità con Velocity: SandboxGame.Draw fa .First() su Query<Transform,Velocity>. Ha un 'name' per essere referenziato come genitore.",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 1.5, "z": 0 }, "Rotation": { "w": 0.7071, "y": -0.7071 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Model", "Size": { "x": 1, "y": 1, "z": 1 }, "Tint": { "r": 255, "g": 255, "b": 255 }, "Wireframe": false, "Visible": true, "ModelPath": "models/little_witch_academia/scene.gltf" },
+        "Velocity": { "Velocity": { "x": 0, "y": 0, "z": 0 } },
+        "Player": { "Name": "Player" }
+      }
+    },
+    {
+      "_comment": "Pavimento: collider statico (Box) + slab visibile. Faccia superiore a y=0.",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": -0.5, "z": 0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 40, "y": 1, "z": 40 }, "Tint": { "r": 120, "g": 120, "b": 130 }, "Wireframe": false, "Visible": true },
+        "RigidBody": { "Shape": "Box", "Size": { "x": 40, "y": 1, "z": 40 }, "Mass": 0, "IsStatic": true }
+      }
+    },
+
+    {
+      "_comment": "Cubo dinamico 1: cade e atterra sul pavimento.",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 10, "z": 0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1, "y": 1, "z": 1 }, "Tint": { "r": 231, "g": 76, "b": 60 }, "Wireframe": false, "Visible": true },
+        "RigidBody": { "Shape": "Box", "Size": { "x": 1, "y": 1, "z": 1 }, "Mass": 1, "IsStatic": false }
+      }
+    },
+    {
+      "_comment": "Cubo dinamico 2.",
+      "components": {
+        "Transform": { "Position": { "x": 0.6, "y": 13, "z": 0.3 }, "Rotation": { "x": 0.2, "y": 0.1, "z": 0, "w": 0.97 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1, "y": 1, "z": 1 }, "Tint": { "r": 46, "g": 204, "b": 113 }, "Wireframe": false, "Visible": true },
+        "RigidBody": { "Shape": "Box", "Size": { "x": 1, "y": 1, "z": 1 }, "Mass": 1, "IsStatic": false }
+      }
+    },
+    {
+      "_comment": "Cubo dinamico 3.",
+      "components": {
+        "Transform": { "Position": { "x": -0.5, "y": 16, "z": -0.4 }, "Rotation": { "x": 0, "y": 0.3, "z": 0.2, "w": 0.93 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 1, "y": 1, "z": 1 }, "Tint": { "r": 241, "g": 196, "b": 15 }, "Wireframe": false, "Visible": true },
+        "RigidBody": { "Shape": "Box", "Size": { "x": 1, "y": 1, "z": 1 }, "Mass": 1, "IsStatic": false }
+      }
+    },
+
+    {
+      "_comment": "Scatola TRASPARENTE (Layer Transparent + alpha < 255): disegnata dopo gli opachi. Statica, fluttua.",
+      "components": {
+        "Transform": { "Position": { "x": 5, "y": 2, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 2, "z": 2 }, "Tint": { "r": 60, "g": 200, "b": 255, "a": 120 }, "Wireframe": false, "Visible": true, "Layer": "Transparent", "SortingOrder": 10 }
+      }
+    },
+    {
+      "_comment": "Scatola WIREFRAME. Statica.",
+      "components": {
+        "Transform": { "Position": { "x": -5, "y": 2, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "MeshRenderer": { "Kind": "Cube", "Size": { "x": 2, "y": 2, "z": 2 }, "Tint": { "r": 236, "g": 240, "b": 241 }, "Wireframe": true, "Visible": true }
+      }
+    },
+    {
+      "_comment": "Luce DIREZIONALE forte e calda, angolata a 45° (pitch): illumina top + un lato, lascia in ombra gli altri → shading ben visibile.",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 10, "z": 0 }, "Rotation": { "x": 0.3827, "y": 0, "z": 0, "w": 0.9239 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Light": { "Kind": "Directional", "Color": { "r": 255, "g": 170, "b": 50 }, "Intensity": 1 }
+      }
+    },
+    {
+      "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
+      "components": {
+        "Transform": { "Position": { "x": 3, "y": 2.5, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Light": { "Kind": "Point", "Color": { "r": 255, "g": 255, "b": 255 }, "Intensity": 200 }
+      }
+    },
+    {
+      "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
+      "components": {
+        "Transform": { "Position": { "x": 6, "y": 2.5, "z": -3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Light": { "Kind": "Point", "Color": { "r": 255, "g": 0, "b": 0 }, "Intensity": 200 }
+      }
+    },
+    {
+      "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 2.5, "z": -2 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Light": { "Kind": "Point", "Color": { "r": 0, "g": 0, "b": 255 }, "Intensity": 200 }
+      }
+    },
+    {
+      "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
+      "components": {
+        "Transform": { "Position": { "x": 3, "y": 2.5, "z": 9 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Light": { "Kind": "Point", "Color": { "r": 0, "g": 255, "b": 0 }, "Intensity": 200 }
+      }
+    }
+  ]
+}

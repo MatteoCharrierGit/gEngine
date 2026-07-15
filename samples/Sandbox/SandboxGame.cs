@@ -6,6 +6,7 @@ using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
 using gEngine.Ecs.System;
 using gEngine.Input;
+using gEngine.Physics;
 using gEngine.Rendering;
 using gEngine.Rendering.Editor;
 using gEngine.Scenes;
@@ -14,7 +15,6 @@ using Raylib_cs;
 using Sandbox.Systems;
 using Camera3D = gEngine.Rendering.Camera3D;
 using Color = gEngine.Rendering.Color;
-using Matrix4x4 = System.Numerics.Matrix4x4;
 using Vector3 = System.Numerics.Vector3;
 using World = gEngine.Ecs.Base.World;
 
@@ -43,14 +43,20 @@ public class SandboxGame() : IGame
     private List<IRenderSystem>? _renderSystems;
     
     
-    private readonly AssetManager _assetManager = new AssetManager(AppContext.BaseDirectory,  "assets");
-    
-    private Texture2D _playerSprite;
-    private Music _introSound;
+    // AssetManager posseduto dal GameLoop e ricevuto in Init (vedi IGame.Init).
+    private AssetManager _assetManager = null!;
+
+    // Mondo fisico (adapter Bepu), posseduto dal gioco.
+    // il suo ciclo di vita non è legato alla finestra: lo creo qui e lo dispongo in Shutdown.
+    private readonly IPhysicsWorld _physics = new BepuPhysicsWorld(new Vector3(0, -9.81f, 0));
+
+    private TextureHandle _playerSprite;
+    private MusicHandle _introSound;
     
 
-    public void Init(InputHandler inputHandler)
+    public void Init(InputHandler inputHandler, AssetManager assets)
     {
+        _assetManager = assets;
 
         var gameActionContext = new GameActionContext();
         gameActionContext.AddToContext([new InputBinding(){KKey = KeyboardKey.W}], GameAction.MoveUp);
@@ -75,21 +81,24 @@ public class SandboxGame() : IGame
         registry.Register("Player", data => data.Deserialize<PlayerComponent>(SceneJson.Options));
         registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJson.Options));
 
-        // Scena caricata da file: niente entità hardcoded qui.
-        var scenePath = Path.Combine(AppContext.BaseDirectory, "assets", "scenes", "city.json");
+        // Scena caricata da file: niente entità hardcoded qui. Luci, modelli (ModelPath) e
+        // gerarchia (Parent) sono gestiti dai binder built-in dell'engine.
+        var scenePath = Path.Combine(AppContext.BaseDirectory, "assets", "scenes", "demo.json");
         var scene = JsonSceneLoader.Load(scenePath);
-        SceneInstantiator.Instantiate(scene, _world, registry);
+        SceneInstantiator.Instantiate(scene, _world, registry, _assetManager);
 
         AddSystem(new MovementSystem());
         AddSystem(new PlayerInputSystem(inputHandler));
         AddSystem(new CameraFollowSystem(_camera, inputHandler));
+        AddSystem(new PhysicsSystem(_physics));
+
+        // LightingSystem PRIMA di MeshRenderSystem: carica le uniform delle luci prima di disegnare.
+        AddSystem(new LightingSystem());
         AddSystem(new MeshRenderSystem());
 
 
-        // _playerSprite = _assetManager.LoadTexture2D("sprites/shan_shan_idle0.png");
-        // _introSound = _assetManager.LoadMusicStream(Path.Combine("audio", "Before_the_Light_Fades.mp3"));
-        
-        Raylib.PlayMusicStream(_introSound);
+        _introSound = _assetManager.LoadMusicStream("audio/Before_the_Light_Fades.mp3");
+        _assetManager.PlayMusic(_introSound);
         
         _freeFlyCamera3DController.Init();
         
@@ -136,23 +145,21 @@ public class SandboxGame() : IGame
 
         renderer.Begin3D(_camera);
 
-        renderer.DrawMesh(new DrawMeshCommand(MeshKind.Plane, Matrix4x4.Identity, new Vector3(40, 0, 40), Color.LightGray, false));
-        renderer.DrawMesh(new DrawMeshCommand(MeshKind.Grid, Matrix4x4.Identity, new Vector3(20, 1, 0), Color.Gray, false));
-
         if (_renderSystems != null)
             foreach (var system in _renderSystems)
-                system.OnRender(_world, renderer, renderer.GetFrameTime());
+                system.OnRender(_world, renderer, _camera, renderer.GetFrameTime());
 
         renderer.End3D();
         renderer.EndFrame();
         
         // audio management
-        Raylib.UpdateMusicStream(_introSound);
+        _assetManager.UpdateMusic(_introSound);
     }
 
     public void Shutdown()
     {
-        _assetManager.UnloadAll();
+        // Le risorse asset sono scaricate dal GameLoop (che possiede l'AssetManager).
+        _physics.Dispose();
     }
 
     private void AddSystem(IInputSystem system)

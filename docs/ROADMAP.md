@@ -41,9 +41,19 @@ Il cuore matematico, già in ottica 3D.
   - [x] Ricordare il **write-back** dopo la mutazione (struct = copia) — pattern
     seguito in `MovementSystem` (bug del write-back parziale che azzerava
     `Scale`/`Rotation` individuato e corretto)
-- [ ] *(rimandabile)* **Gerarchia di transform** (parent/child)
-  - [ ] `Parent`/figli, transform locale vs mondo
-  - [ ] Ricalcolo world matrix (dirty flag)
+- [x] **Gerarchia di transform** (parent/child)
+  - [x] `ParentComponent { Entity Parent }` (`src/gEngine/Ecs/Component/`) — dati puri,
+    solo il riferimento verso l'alto; niente lista figli (un solo punto di verità)
+  - [x] Transform locale vs mondo — `TransformComponent` diventa **locale** quando
+    l'entità ha un `ParentComponent`; la world matrix si ricava con
+    `World.GetWorldMatrix(entity)` (`src/gEngine/Ecs/Base/WorldTransforms.cs`)
+  - [x] Composizione `World = Local * ParentWorld` (locale del figlio a SINISTRA, per la
+    convenzione row-vector di `System.Numerics` — opposto del `Parent * Local` OpenGL)
+  - [x] `MeshRenderSystem` usa la world matrix risolta invece del solo `GetLocalMatrix()`
+  - [ ] *(rimandato)* Cache con **dirty flag**: oggi il ricalcolo è ricorsivo on-demand,
+    senza cache e senza guard sui cicli — sufficiente per scene costruite a mano
+  - [x] Authoring del `Parent` da **file scena**: risolto con istanziazione a due passate
+    (mappa `name → Entity` nel `SceneBindContext`); `"Parent": "nomeGenitore"` nel JSON
 
 **Milestone:** entità con posizione/rotazione/scala 3D reali. ✅
 
@@ -119,15 +129,21 @@ importare `Raylib_cs`.
     `Transform`+`MeshRenderer` (in `Init()`), e in `Draw()` itera i
     `_renderSystems` invece di disegnare i building a mano; la creazione
     delle entità resta nel gioco (che conosce la scena), **non** nel system
-- [ ] **Render order / layer** (opachi vs trasparenti)
+- [x] **Render order / layer** (opachi vs trasparenti)
+  - [x] `RenderLayer { Opaque, Transparent }` (`src/gEngine/Rendering/RenderLayer.cs`) +
+    `Layer`/`SortingOrder` su `MeshRendererComponent`
+  - [x] `MeshRenderSystem` raccoglie i `DrawMeshCommand`, li ordina per
+    `(Layer, SortingOrder)` e poi disegna (opachi prima dei trasparenti)
+  - [ ] *(rimandato)* Ordinamento **back-to-front per distanza** dei trasparenti:
+    serve passare la camera (o la sua posizione) al render step, oggi assente da `OnRender`
 - [ ] Ambientazione statica (grid/plane del pavimento) resta un
   `DrawMeshCommand` costruito al volo dal gioco e passato a
   `renderer.DrawMesh(...)`, **non** un'entità ECS — non c'è ancora un caso
   d'uso per trattarla come dato di scena
 
 **Milestone:** una scena di cubi/sfere navigabile con camera 3D. 🎉 ✅
-*(pipeline mesh via ECS completata; restano da fare solo `render order`/layer
-opachi-vs-trasparenti)*
+*(pipeline mesh via ECS completata; render order per layer/`SortingOrder` fatto —
+resta solo il sort per distanza dei trasparenti, che richiede la camera nel render step)*
 
 ---
 
@@ -222,21 +238,47 @@ UI immediate-mode dentro la finestra Raylib.
 
 Da "cubi colorati" a "scena 3D vera".
 
-- [ ] **Caricamento modelli**
-  - [ ] Import glTF/OBJ (`LoadModel`)
-  - [ ] Gestione texture/material dei modelli
-  - [ ] Integrazione con l'AssetManager (cache, unload)
-- [ ] **Materiali & shader**
-  - [ ] Material con colore/albedo/texture
-  - [ ] Shader base (Blinn-Phong o PBR minimale)
-- [ ] **Illuminazione**
-  - [ ] Luce direzionale (sole) + luci punto
-  - [ ] *(avanzato)* ombre
-- [ ] **Fisica 3D → BepuPhysics v2** (Aether è 2D-only)
-  - [ ] Rigid body + collider (box/sphere/capsule/mesh)
-  - [ ] Sync mondo fisico ⇄ `Transform` dell'ECS
-  - [ ] Raycast (utile anche per il picking dell'editor)
-- [ ] **Frustum culling** (non disegnare ciò che è fuori camera)
+- [x] **Caricamento modelli** *(animazioni rimandate, come da piano)*
+  - [x] Import glTF/OBJ via `AssetManager.LoadModel` → `ModelHandle` opaco
+    (`RayLibAssetBackend.LoadModel` = `Raylib.LoadModel`)
+  - [x] Integrazione con l'AssetManager (cache path→handle, `UnloadAll` dal `GameLoop`)
+  - [x] Disegno via `MeshKind.Model`: `MeshRendererComponent.Model` (handle) →
+    `DrawMeshCommand.Model` → `RayLibRenderer` risolve `ModelHandle → Model` tramite
+    `RayLibAssetBackend.TryGetModel` (i due adapter raylib condividono la tabella modelli,
+    creati e collegati dal `GameLoop`)
+  - [~] Texture/material dei modelli: quelli **embedded** nel file (es. glTF) li carica
+    raylib da sé; material/shader custom = prossimo punto (luci/PBR)
+  - [ ] *(rimandato)* Animazioni scheletriche
+  - [ ] *(rimandato)* Bounds reali della mesh per il frustum culling (ora: cubo unitario)
+- [~] **Materiali & shader**
+  - [x] Shader di illuminazione PBR semplice (`src/gEngine/Shaders/lit.vs`+`lit.fs`,
+    GLSL 330: GGX + Lambert, metallic/roughness) caricato e gestito da `RayLibRenderer`;
+    applicato al material dei cubi e ai material dei modelli
+  - [~] Material con colore/albedo: il colore (`Tint`→`colDiffuse`) e la texture albedo
+    dei modelli funzionano; metallic/roughness sono **globali** (un solo set), non ancora
+    per-material — prossimo affinamento
+- [x] **Illuminazione**
+  - [x] `LightComponent` (Directional/Point) + `LightingSystem` che raccoglie le luci e
+    le carica via `IRenderer.SetLighting`; `RayLibRenderer` setta le uniform dello shader
+    (fino a `MAX_LIGHTS = 4`)
+  - [ ] *(rimandato)* ombre
+- [~] **Fisica 3D → BepuPhysics v2** (Aether è 2D-only)
+  - [x] Port `IPhysicsWorld` + adapter `BepuPhysicsWorld` (unico file che importa Bepu),
+    stesso schema ports & adapters di renderer/asset
+  - [x] Rigid body + collider **box/sphere** (`RigidBodyComponent`, statici e dinamici);
+    capsule/mesh rimandati
+  - [x] Sync mondo fisico → `Transform` dell'ECS (`PhysicsSystem`, fixed-step)
+  - [ ] *(rimandato)* Raycast (utile anche per il picking dell'editor)
+- [x] **Frustum culling** (non disegnare ciò che è fuori camera)
+  - [x] `Frustum` (`src/gEngine/MathUtils/Frustum.cs`) — 6 piani estratti dalla
+    view-projection (Gribb–Hartmann, adattato alla convenzione row-vector di
+    `System.Numerics`), test conservativo `IntersectsSphere(center, radius)`
+  - [x] `Camera3D` espone `Near`/`Far` + `GetView/Projection/ViewProjection(aspect)`
+    (matematica pura, indipendente da raylib)
+  - [x] `IRenderSystem.OnRender` ora riceve la `Camera3D`; `MeshRenderSystem` costruisce
+    il frustum una volta per frame e scarta le entità la cui bounding sphere è tutta fuori
+  - [ ] *(rimandato)* Bounds per-mesh reali col caricamento modelli (ora si assume
+    l'ingombro del cubo unitario, valido per `MeshKind.Cube`)
 
 **Milestone:** modelli importati, illuminati e con fisica 3D.
 

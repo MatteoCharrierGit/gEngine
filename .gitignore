@@ -9,5 +9,5 @@ obj/
 .claude/
 
 # Sandbox: sprite/audio non redistribuibili esclusi, ma i dati di scena (JSON) sono tracciati
-samples/Sandbox/assets/*
-!samples/Sandbox/assets/scenes/
+# samples/Sandbox/assets/*
+# !samples/Sandbox/assets/scenes/

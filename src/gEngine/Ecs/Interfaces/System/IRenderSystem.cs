@@ -5,5 +5,5 @@ namespace gEngine.Ecs.Interfaces.System;
 
 public interface IRenderSystem : ISystem
 {
-    void OnRender(World world, IRenderer renderer, float frameDeltaTime);
+    void OnRender(World world, IRenderer renderer, Camera3D camera, float frameDeltaTime);
 }

@@ -13,6 +13,11 @@ public interface IRenderer
     void Shutdown();
 
 
+    // Lighting: carica le luci del frame (posizione camera + fino a MAX_LIGHTS luci).
+    // Va chiamato dentro il blocco 3D, prima di disegnare le mesh illuminate.
+    void SetLighting(Vector3 cameraPosition, IReadOnlyList<LightData> lights);
+
+
     // Primitives
     void DrawMesh(in DrawMeshCommand command);
 

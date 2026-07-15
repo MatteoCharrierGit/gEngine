@@ -1,61 +1,86 @@
-﻿using Raylib_cs;
-
 namespace gEngine.Assets;
 
-public class AssetManager(string rootDirectory, string assetsDir)
+/// <summary>
+/// Gestore asset indipendente dalla libreria grafica/audio. Non conosce
+/// <c>Raylib_cs</c>: risolve i path relativi rispetto alla cartella asset, tiene una
+/// cache path→handle (stesso file caricato una volta sola) e delega ogni operazione
+/// nativa a un <see cref="IAssetBackend"/>. Per usare un'altra libreria basta passare
+/// un backend diverso al costruttore — questa classe non cambia.
+/// </summary>
+public class AssetManager
 {
-    private readonly string _rootDir =  Path.Combine(rootDirectory, assetsDir);
-    
-    private readonly Dictionary<string, Texture2D> _textures2D = new();
-    private readonly Dictionary<string, Sound> _sounds = new();
-    private readonly Dictionary<string, Music> _musics = new();
+    private readonly string _rootDir;
+    private readonly IAssetBackend _backend;
 
-    public Texture2D LoadTexture2D(string relPath)
+    private readonly Dictionary<string, TextureHandle> _textures = new();
+    private readonly Dictionary<string, SoundHandle> _sounds = new();
+    private readonly Dictionary<string, MusicHandle> _musics = new();
+    private readonly Dictionary<string, ModelHandle> _models = new();
+
+    public AssetManager(string rootDirectory, string assetsDir, IAssetBackend backend)
     {
-        if (_textures2D.TryGetValue(Path.Combine(_rootDir, relPath), out var cached))
-            return cached;
-
-        var t = Raylib.LoadTexture(Path.Combine(_rootDir, relPath));
-        _textures2D.Add(Path.Combine(_rootDir, relPath), t);
-        return t;
+        _rootDir = Path.Combine(rootDirectory, assetsDir);
+        _backend = backend;
     }
 
-    public Sound LoadSound(string relPath)
+    public TextureHandle LoadTexture2D(string relPath)
     {
-        if (_sounds.TryGetValue(Path.Combine(_rootDir, relPath), out var cached))
+        var fullPath = Path.Combine(_rootDir, relPath);
+        if (_textures.TryGetValue(fullPath, out var cached))
             return cached;
-        
-        var s = Raylib.LoadSound(Path.Combine(_rootDir, relPath));
-        _sounds.Add(Path.Combine(_rootDir, relPath), s);
-        return s;
+
+        var handle = _backend.LoadTexture(fullPath);
+        _textures[fullPath] = handle;
+        return handle;
     }
 
-    public Music LoadMusicStream(string relPath)
+    public SoundHandle LoadSound(string relPath)
     {
-        if (_musics.TryGetValue(Path.Combine(_rootDir, relPath), out var cached))
+        var fullPath = Path.Combine(_rootDir, relPath);
+        if (_sounds.TryGetValue(fullPath, out var cached))
             return cached;
-        
-        var m = Raylib.LoadMusicStream(Path.Combine(_rootDir, relPath));
-        _musics.Add(Path.Combine(_rootDir, relPath), m);
-        return m;
+
+        var handle = _backend.LoadSound(fullPath);
+        _sounds[fullPath] = handle;
+        return handle;
     }
-    
+
+    public MusicHandle LoadMusicStream(string relPath)
+    {
+        var fullPath = Path.Combine(_rootDir, relPath);
+        if (_musics.TryGetValue(fullPath, out var cached))
+            return cached;
+
+        var handle = _backend.LoadMusic(fullPath);
+        _musics[fullPath] = handle;
+        return handle;
+    }
+
+    public ModelHandle LoadModel(string relPath)
+    {
+        var fullPath = Path.Combine(_rootDir, relPath);
+        if (_models.TryGetValue(fullPath, out var cached))
+            return cached;
+
+        var handle = _backend.LoadModel(fullPath);
+        _models[fullPath] = handle;
+        return handle;
+    }
+
+    // Comodità di playback: passthrough verso il backend, così il gioco parla con un
+    // solo oggetto (l'AssetManager) e non deve tenere un riferimento separato al backend.
+    public void PlaySound(SoundHandle handle) => _backend.PlaySound(handle);
+    public void PlayMusic(MusicHandle handle) => _backend.PlayMusic(handle);
+    public void UpdateMusic(MusicHandle handle) => _backend.UpdateMusic(handle);
+    public void StopMusic(MusicHandle handle) => _backend.StopMusic(handle);
+
     public void UnloadAll()
     {
-        foreach (var texture in _textures2D.Values)
-            Raylib.UnloadTexture(texture);
-        
-        foreach (var sound in _sounds.Values)
-            Raylib.UnloadSound(sound);
+        _backend.UnloadAll();
 
-        foreach (var music in _musics.Values)
-        {
-            Raylib.UnloadMusicStream(music);
-        }
-
-        _textures2D.Clear();
+        _textures.Clear();
         _sounds.Clear();
         _musics.Clear();
+        _models.Clear();
     }
-    
 }
