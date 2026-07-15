@@ -92,12 +92,12 @@ public class SandboxGame() : IGame
         _world.AddComponent(PlayerEntity, new PlayerComponent());
 
         AddSystem(new MovementSystem());
-        // AddSystem(new PlayerInputSystem(inputHandler));
+        AddSystem(new PlayerInputSystem(inputHandler));
         AddSystem(new CameraFollowSystem(_camera, inputHandler));
         
         
-        _playerSprite = _assetManager.LoadTexture2D("sprites/shan_shan_idle0.png");
-        _introSound = _assetManager.LoadMusicStream(Path.Combine("audio", "Before_the_Light_Fades.mp3"));
+        // _playerSprite = _assetManager.LoadTexture2D("sprites/shan_shan_idle0.png");
+        // _introSound = _assetManager.LoadMusicStream(Path.Combine("audio", "Before_the_Light_Fades.mp3"));
         
         Raylib.PlayMusicStream(_introSound);
         
