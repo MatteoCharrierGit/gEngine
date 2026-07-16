@@ -77,6 +77,72 @@ il mouse **a livello, una volta per frame**), e un trascinamento che parte da un
 **sposta la finestra ImGui** invece dell'item. Per provare il drag&drop si è fatto partire
 temporaneamente il `FileSystemPanel` dentro la cartella del modello.
 
+## Da chiudere PRIMA del piano (buchi, non comodità)
+
+Quattro cose trovate guardando il codice a fine sessione. Non sono desiderata: sono punti in
+cui l'editor **promette** qualcosa che non fa, o in cui una cosa nuova ha reso raggiungibile un
+debito vecchio. In ordine.
+
+### A. Il riparentamento non esiste — e cinque posti dicono che c'è 🔴
+`ParentComponent` non è esposto nell'Inspector **apposta**, col commento *«il posto dove si
+riparenta è l'albero della Hierarchy»*. `SceneComponentRegistry` non gli dà un default perché
+*«ci si riparenta dalla Hierarchy»*. E **due tooltip mostrati all'utente** ripetono la frase.
+
+La Hierarchy legge `ParentComponent` solo per **costruire l'albero**. Nessun drag&drop, nessuna
+voce di menu: riparentare un'entità esistente **è impossibile dall'editor** — si può solo creare
+un figlio nuovo. Quindi l'editor manda l'utente a fare una cosa che non si può fare, ed è la
+regola del progetto ("non lasciare che i commenti mentano") violata in cinque punti, due dei
+quali scritti nella Fase 4.7.
+
+Va chiuso il buco, non corrette le cinque frasi. Il macchinario c'è già: `BeginDragDropSource`/
+`BeginDragDropTarget` sulle righe dell'albero — vedi `AssetDragDrop`, stessa meccanica con un
+payload diverso (un `Entity` invece di un path).
+- ⚠️ **Deve rifiutare i cicli**: trascinare un genitore dentro un suo discendente. Non è
+  teorico — `EntityOperations.DestroyRecursive` ha già un visited set proprio perché *«un editor
+  permette di costruire dati che il codice di scena non costruirebbe mai»*. È lo stesso
+  pericolo, dall'altro lato. Il World non si difende: qui un ciclo è un blocco totale.
+- ⚠️ Trascinare **fuori** (a radice) deve togliere il `ParentComponent`, non metterlo a
+  `Entity(0)`.
+- ⚠️ Il Transform è **locale**: riparentando, l'entità salta di posa se non si ricalcola.
+  `World.SetWorldPose` esiste apposta ed è l'inverso di `GetWorldMatrix` — ma ⚠️ non onora
+  l'orientamento con genitore a **scala non uniforme** (vedi il debito noto). Decidere se
+  "mantieni la posa di mondo" è la semantica giusta, o se si riparenta e basta.
+
+### B. Undo — e va fatto PRIMA del punto 2 del piano 🔴
+Non esiste da nessuna parte. Oggi ogni azione distruttiva è definitiva: Elimina, "Rimuovi da
+tutte", Svuota lo slot, ogni trascinamento del gizmo. Si sopravvive perché il disco non è
+toccato — `File > Open Scene` è l'undo del poveraccio.
+
+⚠️ **Il punto 2 (FileSystem completo) aggiunge "elimina file dal disco", e lì quella rete non
+c'è più.** Costruire quel bottone senza undo vuol dire tornarci sopra dopo.
+
+Il materiale c'è già: **lo snapshot del `PlayMode` è la serializzazione in memoria**. Un undo a
+grana grossa (snapshot prima di ogni comando, stack di N) è quasi gratis con quello che esiste;
+uno a grana fine (command stack) è più lavoro ma è la cosa giusta a lungo termine. ⚠️ È una
+decisione da prendere **una volta**, prima di scriverne metà.
+
+### C. Un progetto di test, con UN test: il round-trip di serializzazione 🟡
+La Fase 0 lo prevedeva e non c'è mai stato. Non serve testare tutto: serve **World → Scene →
+World, e confronta**.
+
+Perché proprio quello: quel codice adesso regge **tre** cose insieme — il Salva, il Play/Stop
+(lo snapshot *è* il serializer) e, domani, l'hot-reload (snapshot → ricompila → reistanzia).
+Tre pilastri su un pezzo che nessuno controlla e che finora è stato verificato **guardando dei
+cubi cadere**. È mezz'ora e copre tutto e tre.
+
+### D. `ISystem` non ha un `OnDestroy` 🟡
+Era un debito teorico finché nessuno toglieva system. Il pannello Systems (Fase 4.7) li fa
+togliere **col mouse**: togliere il `PhysicsSystem` lascia i corpi nel mondo Bepu senza che
+nessuno li liberi. C'è un tooltip che lo dice, ma è una pezza — il pannello ha reso
+raggiungibile un buco che prima non lo era.
+- ⚠️ Stessa famiglia: "Ripristina" richiama `OnCreate` su un'istanza già creata. Oggi non morde
+  perché **tutti** gli `OnCreate` sono vuoti, cioè regge per caso.
+
+*(Restano fuori perché sono comodità e non buchi: Save As, ricerca nella Hierarchy,
+multi-selezione.)*
+
+---
+
 ## Il piano deciso dal proprietario (in ordine)
 
 **1. Console in-editor.** Unire il logger del progetto (`Log/`, oggi `ConsoleLogger`) con una
@@ -91,8 +157,8 @@ posto (`resources.Add<ILogger>(...)`).
 basilari direttamente da lì**. ⚠️ La parte "crea oggetti" incrocia il `SceneComponentRegistry`:
 un "cubo" è un'entità con Transform + MeshRenderer coi default della Fase 4.7 — cioè
 `EntityOperations.Create` + due `TryCreateDefault`, non codice nuovo. ⚠️ La parte "elimina" è
-quella che non ha rete: niente undo, niente cestino. Decidere cosa metterci sotto **prima** di
-scrivere il bottone.
+quella che non ha rete: niente undo, niente cestino. **Vedi il punto B qui sopra: l'undo va
+fatto prima di questo**, non dopo.
 
 **3. Interfaccia per l'InputHandler e per i system.** L'`InputHandler` è una classe concreta e i
 system se la prendono nel costruttore: è l'ultima dipendenza del gioco che non passa da una
