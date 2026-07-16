@@ -30,4 +30,26 @@ public static class JsonSceneLoader
 
         return scene;
     }
+
+    /// <summary>
+    /// Scrive la scena su file. <c>WriteIndented</c> perché un file di scena è
+    /// <b>sorgente versionato</b>: deve restare leggibile e produrre diff sensati in git,
+    /// non essere compatto.
+    ///
+    /// Scrittura atomica (file temporaneo + move): un salvataggio interrotto a metà
+    /// lascerebbe la scena troncata — cioè distruggerebbe il lavoro che stava salvando.
+    /// </summary>
+    public static void Save(Scene scene, string path)
+    {
+        var options = new JsonSerializerOptions(SceneJson.Options) { WriteIndented = true };
+        var text = JsonSerializer.Serialize(scene, options);
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+            Directory.CreateDirectory(directory);
+
+        var tempPath = path + ".tmp";
+        File.WriteAllText(tempPath, text);
+        File.Move(tempPath, path, overwrite: true);
+    }
 }

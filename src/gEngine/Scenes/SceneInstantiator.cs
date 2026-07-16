@@ -1,5 +1,6 @@
 using gEngine.Assets;
 using gEngine.Ecs.Base;
+using gEngine.Ecs.Component;
 
 namespace gEngine.Scenes;
 
@@ -29,7 +30,15 @@ public static class SceneInstantiator
             created.Add((entityDef, entity));
 
             if (!string.IsNullOrWhiteSpace(entityDef.Name))
+            {
                 entitiesByName[entityDef.Name] = entity;
+
+                // Il nome entra anche nel World come NameComponent: serve all'editor per
+                // etichettare le entità e al futuro salvataggio per riscrivere il campo.
+                // Non è un componente dichiarabile nel bag "components" del file — deriva
+                // dal campo Name dell'entità, che resta l'unico punto di verità.
+                world.AddComponent(entity, new NameComponent { Value = entityDef.Name });
+            }
         }
 
         var context = new SceneBindContext { EntitiesByName = entitiesByName, Assets = assets };
