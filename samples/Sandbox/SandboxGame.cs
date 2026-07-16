@@ -126,13 +126,20 @@ public class SandboxGame() : IGame
 
     public void Draw(IRenderer renderer)
     {
+        renderer.BeginFrame();
+        renderer.ClearBackground(Color.White);
+        
+        renderer.Begin3D(_camera);
+
+        if (_renderSystems != null)
+            foreach (var system in _renderSystems)
+                system.OnRender(_world, renderer, _camera, renderer.GetFrameTime());
+
+        renderer.End3D();
+        
         
         var (_, transform, _) = _world.Query<TransformComponent, VelocityComponent>().First();
         
-        renderer.BeginFrame();
-        renderer.ClearBackground(Color.White);
-        renderer.DrawText("GameTime: " +  Raylib.GetTime(), 20, 20, 30, Color.Black);
-
         const int hudPadding = 20;
         const int hudBoxWidth = 220;
         const int hudBoxHeight = 40;
@@ -141,15 +148,9 @@ public class SandboxGame() : IGame
 
         renderer.DrawRectangle(hudBoxX, hudBoxY, hudBoxWidth, hudBoxHeight, new Color(0, 0, 0, 150));
         renderer.DrawText($"Pos: ({transform.Position.X:F0}, {transform.Position.Y:F0})", hudBoxX + 10, hudBoxY + 10, 20, Color.White);
-        
+        renderer.DrawText("GameTime: " +  Raylib.GetTime(), 20, 20, 30, Color.Black);
 
-        renderer.Begin3D(_camera);
 
-        if (_renderSystems != null)
-            foreach (var system in _renderSystems)
-                system.OnRender(_world, renderer, _camera, renderer.GetFrameTime());
-
-        renderer.End3D();
         renderer.EndFrame();
         
         // audio management
