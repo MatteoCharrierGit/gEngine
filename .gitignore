@@ -8,6 +8,10 @@ obj/
 *.user
 .claude/
 
+# Layout dei pannelli dell'editor: ImGui lo salva da sé nella working directory
+# (quindi nel sorgente, non in bin/). È stato locale della finestra, non del progetto.
+imgui.ini
+
 # Sandbox: sprite/audio non redistribuibili esclusi, ma i dati di scena (JSON) sono tracciati
 # samples/Sandbox/assets/*
 # !samples/Sandbox/assets/scenes/
