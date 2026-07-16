@@ -100,7 +100,34 @@ porta. ⚠️ Tocca `ScriptDiscovery`, che risolve i parametri **per tipo esatto
 il giorno che l'input si registra sotto `IInputHandler`, uno script che chiede `InputHandler`
 non lo trova più — ed è giusto (chi consuma dipende dalla porta), ma va fatto in un colpo solo.
 
-**4. Poi si torna al piano originale della ROADMAP** (Fase 5 in avanti).
+**4. Audio manager, dal punto di vista dell'UI.** Oggi l'audio è invisibile all'editor: chi
+suona, cosa, a che volume, non si vede da nessuna parte — e `SandboxGame` tiene un
+`_introSound` e chiama `UpdateMusic` a mano dentro `Draw`, che è codice del gioco che fa il
+lavoro di un system. ⚠️ Prima di disegnare il pannello, sappi che metà delle decisioni sono
+già state prese e ti aspettano:
+- `AssetKind` distingue già **Sound** (effetto tutto in memoria) e **Music** (stream), perché
+  li distingue l'`AssetManager` (`LoadSound` vs `LoadMusicStream`).
+- ⚠️ `AssetDragDrop.Classify` mappa **tutti** gli audio a `Music` e lo **dichiara**: lo stesso
+  .mp3 è l'uno o l'altro a seconda di *come lo usi*, e l'estensione non lo sa. Quella riga
+  dice esplicitamente «il giorno che uno slot Sound esisterà, qui la scelta va rifatta».
+  Quel giorno è questo: probabilmente il genere lo decide lo **slot** che riceve il drop, non
+  il file che parte.
+- `DrawAssetSlot` gestisce solo `AssetKind.Model` e lo dice (`<slot Music: non ancora
+  gestito>`): il ramo c'è già, gli manca il caso.
+- Manca il componente: un `AudioSource` (dato d'autore: quale clip, volume, loop) più il
+  system che lo suona. Con `[GameComponent]` + `[EditorAsset(AssetKind.Music)]` nasce già
+  autorabile, salvabile e trascinabile — è la prova che gli strati sotto reggono.
+
+**5. Font dell'editor.** ⚠️ Inter **non è installato** su questa macchina: va scaricato, con
+il suo file di licenza, e poi vanno ritarate le metriche di `EditorTheme` (padding/spacing/raggi
+sono tarati sui 13px di ProggyClean) e riguardato tutto a video. Non è un ritocco — vedi
+`ROADMAP.md` Fase 4.7bis, sezione tema, per il perché vale la pena.
+- Scorciatoia trovata guardando: **Cascadia Code è già installato ed è SIL OFL**, quindi
+  redistribuibile senza scaricare niente. ⚠️ Ma è **monospaziato**: non è "Inter più in
+  fretta", è un editor diverso — dice *strumento tecnico* e allinea le colonne di numeri
+  dell'Inspector. È una scelta, non una comodità.
+
+**6. Poi si torna al piano originale della ROADMAP** (Fase 5 in avanti).
 
 ## Cosa resta, oltre al piano
 
