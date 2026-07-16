@@ -2,6 +2,6 @@
 
 public struct Collider2DComponent
 {
-    public float HalfWidth;
-    public float HalfHeight;
+    [EditorConfiguration] public float HalfWidth;
+    [EditorConfiguration] public float HalfHeight;
 }

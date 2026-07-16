@@ -15,6 +15,13 @@ public unsafe class RayLibRenderer : IRenderer
     // per il caso MeshKind.Model. Entrambi gli adapter condividono così la tabella modelli.
     private readonly RayLibAssetBackend _assetBackend;
 
+    // Tabella dei render target: l'handle opaco che gira nell'engine è la chiave, la
+    // RenderTexture2D di raylib sta solo qui dentro. Stesso schema della tabella modelli
+    // in RayLibAssetBackend.
+    private readonly Dictionary<int, RenderTexture2D> _renderTargets = new();
+    private int _nextRenderTargetId = 1;
+    private RenderTargetHandle _activeRenderTarget = RenderTargetHandle.None;
+
     // Shader di illuminazione (PBR semplice) + cache delle location delle uniform, così
     // ogni frame settiamo i valori per indice senza ri-cercare le stringhe.
     private Shader _litShader;
@@ -82,6 +89,58 @@ public unsafe class RayLibRenderer : IRenderer
     public void End3D()
     {
         Raylib.EndMode3D();
+    }
+
+    public RenderTargetHandle CreateRenderTarget(int width, int height)
+    {
+        // LoadRenderTexture aggancia da sé un depth buffer: senza, il 3D dentro il target
+        // si disegnerebbe nell'ordine delle draw call invece che per profondità.
+        var texture = Raylib.LoadRenderTexture(width, height);
+
+        var id = _nextRenderTargetId++;
+        _renderTargets[id] = texture;
+
+        return new RenderTargetHandle(id);
+    }
+
+    public void DestroyRenderTarget(RenderTargetHandle target)
+    {
+        if (!_renderTargets.Remove(target.Id, out var texture))
+            return;
+
+        Raylib.UnloadRenderTexture(texture);
+    }
+
+    public void BeginRenderTarget(RenderTargetHandle target)
+    {
+        if (!_renderTargets.TryGetValue(target.Id, out var texture))
+            throw new ArgumentException($"Render target {target.Id} inesistente.", nameof(target));
+
+        // raylib non annida BeginTextureMode (c'è un solo framebuffer legato alla volta):
+        // annidarlo lascerebbe il target esterno mezzo disegnato, in un modo che a schermo
+        // sembra un bug del contenuto e non della sequenza di chiamate.
+        if (_activeRenderTarget.IsValid)
+            throw new InvalidOperationException(
+                $"Render target {_activeRenderTarget.Id} già attivo: chiama EndRenderTarget prima di aprirne un altro.");
+
+        _activeRenderTarget = target;
+        Raylib.BeginTextureMode(texture);
+    }
+
+    public void EndRenderTarget()
+    {
+        if (!_activeRenderTarget.IsValid)
+            throw new InvalidOperationException("EndRenderTarget senza un BeginRenderTarget corrispondente.");
+
+        _activeRenderTarget = RenderTargetHandle.None;
+        Raylib.EndTextureMode();
+    }
+
+    public nint GetRenderTargetTextureId(RenderTargetHandle target)
+    {
+        return _renderTargets.TryGetValue(target.Id, out var texture)
+            ? (nint)texture.Texture.Id
+            : 0;
     }
 
     public void SetLighting(Vector3 cameraPosition, IReadOnlyList<LightData> lights)
@@ -188,6 +247,23 @@ public unsafe class RayLibRenderer : IRenderer
         return Raylib.GetScreenWidth();
     }
 
+    // TryGetValue e non l'indicizzatore: un target distrutto mentre è ancora attivo
+    // farebbe lanciare a una banale richiesta di dimensioni, in mezzo al disegno. Meglio
+    // ricadere sulla finestra, che è la stessa risposta di "nessun target attivo".
+    public int GetRenderWidth()
+    {
+        return _renderTargets.TryGetValue(_activeRenderTarget.Id, out var target)
+            ? target.Texture.Width
+            : Raylib.GetScreenWidth();
+    }
+
+    public int GetRenderHeight()
+    {
+        return _renderTargets.TryGetValue(_activeRenderTarget.Id, out var target)
+            ? target.Texture.Height
+            : Raylib.GetScreenHeight();
+    }
+
     public float GetFrameTime()
     {
         return Raylib.GetFrameTime();
@@ -205,6 +281,14 @@ public unsafe class RayLibRenderer : IRenderer
 
     public void Shutdown()
     {
+        // I render target li crea chi disegna (i viewport dell'editor), ma la tabella è
+        // nostra: chi li ha creati vive dentro IGame e allo Shutdown non ha più un
+        // renderer in mano per liberarli. Chi possiede la risorsa fa la pulizia finale.
+        foreach (var target in _renderTargets.Values)
+            Raylib.UnloadRenderTexture(target);
+
+        _renderTargets.Clear();
+
         Raylib.UnloadShader(_litShader);
         Raylib.UnloadMesh(_unitCubeMesh);
         // NB: _defaultMaterial usa _litShader (già scaricato sopra). Non chiamiamo

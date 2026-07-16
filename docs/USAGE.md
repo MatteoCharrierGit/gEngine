@@ -51,16 +51,33 @@ Il tuo gioco implementa `IGame` (`src/gEngine/Core/IGame.cs`):
 ```csharp
 public interface IGame
 {
-    void Init(InputHandler inputHandler, AssetManager assets); // una volta, prima del loop
-    void Update(float fixedDeltaTime, InputHandler input);     // 0..N volte per frame (fixed step)
-    void Draw(IRenderer renderer);                             // una volta per frame
-    void Shutdown();                                           // alla chiusura
+    void Init(Resources resources);                        // una volta, prima del loop
+    void Update(float fixedDeltaTime, InputHandler input); // 0..N volte per frame (fixed step)
+    void Draw(IRenderer renderer);                         // una volta per frame
+    void Shutdown();                                       // alla chiusura
 }
 ```
 
 `GameLoop` possiede la finestra, l'audio device, il `RayLibRenderer` e l'`AssetManager`
-(tutti costruiti dopo `InitWindow`): passa il renderer a `Draw` e l'AssetManager a
-`Init`. **Il gioco non tocca raylib per disegnare né costruisce gli adapter raylib.**
+(tutti costruiti dopo `InitWindow`), li registra nelle **`Resources`** (§4.5) e passa il
+contenitore a `Init`. **Il gioco non tocca raylib per disegnare né costruisce gli adapter
+raylib.**
+
+```csharp
+public void Init(Resources resources)
+{
+    var input  = resources.Get<InputHandler>();
+    var assets = resources.Get<AssetManager>();
+    // Ciò che crea il gioco, lo dichiara il gioco:
+    resources.Add<IPhysicsWorld>(new BepuPhysicsWorld(new Vector3(0, -9.81f, 0)));
+}
+```
+
+`Init` riceve il contenitore invece di una lista di parametri perché quella lista cresceva
+a ogni servizio nuovo. `Update`/`Draw` invece continuano a ricevere `InputHandler`/`IRenderer`
+**espliciti**, apposta: sono richiesti *sempre*, e il parametro lo dichiara nel tipo —
+pescarli con `Get<T>()` fallirebbe a runtime invece che a compile time. È la stessa istanza:
+la Resource è il punto di verità, il parametro è comodità.
 
 ---
 
@@ -140,6 +157,40 @@ non fare affidamento sul tipo: tratta il write-back come la regola.)
 
 ---
 
+## 4.5 Resources: l'infrastruttura, fuori dal World
+
+La regola dell'engine, in una riga:
+
+> **I dati di scena vivono nel World come Component. L'infrastruttura è una Resource
+> registrata esplicitamente.**
+
+Se una cosa ha una posa, appartiene a un'entità o va salvata nel file scena, è un
+**Component**: camera, luce, mesh renderer, rigid body. Se è un servizio che il gioco usa ma
+che non è "roba nella scena", è una **Resource**: il renderer, l'`AssetManager`, il mondo
+fisico, l'`InputHandler`.
+
+```csharp
+resources.Add<IPhysicsWorld>(new BepuPhysicsWorld(new Vector3(0, -9.81f, 0)));
+
+var physics = resources.Get<IPhysicsWorld>();          // fail-fast se manca
+if (resources.TryGet<SystemRegistry>(out var systems)) { /* opzionale */ }
+```
+
+⚠️ La chiave è **`typeof(T)`**, non il tipo concreto: registra sempre con il tipo della
+**porta** (`Add<IPhysicsWorld>(...)`). Con l'inferenza finirebbe sotto `BepuPhysicsWorld` e
+nessuna lettura per porta lo troverebbe mai. Stessa trappola con i campi nullable: si
+registrerebbe sotto `IRenderer?`.
+
+**Perché il renderer non è un Component**, visto che "tutto è un'entità" sarebbe più elegante:
+`SceneSerializer` scorre gli storage del World e scrive ciò che trova, quindi un
+`RendererComponent` finirebbe dentro il tuo `.json`. L'unico modo per evitarlo sarebbe
+marcarlo `[RuntimeState]` — cioè ammettere che non è dato d'autore. È lo split di Bevy
+(`Component`/`Resource`), e vale anche al contrario: la camera **di gioco** è un'entità
+(dato d'autore), la camera **di scena dell'editor** no (stato dell'editor). Vedi
+`ROADMAP.md` Fase 4.5.
+
+---
+
 ## 5. System: logica sui componenti
 
 Un system contiene la logica; i componenti restano dati. Tutti derivano da `ISystem`
@@ -178,30 +229,76 @@ ordinare i trasparenti per distanza; vedi §7.)
 
 ### Registrare ed eseguire i system
 
-**L'engine non ha uno scheduler**: è il gioco a tenere le liste per tipo ed eseguirle
-nell'ordine giusto. Pattern usato in `SandboxGame`:
+I system li possiede il **`SystemRegistry`** (`Ecs/SystemRegistry.cs`): un solo `Add`, che
+smista il system su tutte le fasi che implementa e chiama `OnCreate` una volta sola.
 
 ```csharp
-// campi
-private List<IInputSystem>? _inputSystems;
-private List<ISimulationSystem>? _simulationSystems;
-private List<ILateSystem>? _lateSystems;
-private List<IRenderSystem>? _renderSystems;
+private readonly SystemRegistry _systems;   // new SystemRegistry(_world)
 
-// in Init(): AddSystem è overloaded per tipo, aggiunge alla lista giusta e chiama OnCreate
-AddSystem(new MovementSystem());       // ISimulationSystem
-AddSystem(new PlayerInputSystem(...));  // IInputSystem
-AddSystem(new CameraFollowSystem(...)); // ILateSystem
-AddSystem(new MeshRenderSystem());      // IRenderSystem  (fornito dall'engine)
+// in Init(): niente overload, la fase la deduce dalle interfacce implementate
+_systems.Add(new PlayerInputSystem(input));   // IInputSystem
+_systems.Add(new MovementSystem());           // ISimulationSystem
+_systems.Add(new CameraFollowSystem());       // ILateSystem
+_systems.Add(new LightingSystem());           // IRenderSystem — PRIMA di MeshRenderSystem
+_systems.Add(new MeshRenderSystem());         // IRenderSystem
 
-// in Update(): input → simulation → late
-foreach (var s in _inputSystems)      s.OnUpdate(_world, fixedDeltaTime);
-foreach (var s in _simulationSystems) s.OnUpdate(_world, fixedDeltaTime);
-foreach (var s in _lateSystems)       s.OnUpdate(_world, fixedDeltaTime);
+// in Update(): il World lo tiene il registry, tu passi solo il tempo
+_systems.RunInput(fixedDeltaTime);
+_systems.RunSimulation(fixedDeltaTime);
+_systems.RunLate(fixedDeltaTime);
 
-// in Draw(): render (la camera serve al culling/ordinamento)
-foreach (var s in _renderSystems) s.OnRender(_world, renderer, _camera, renderer.GetFrameTime());
+// in Draw(): la camera serve al culling/ordinamento
+_systems.RunRender(renderer, camera, renderer.GetFrameTime());
 ```
+
+Si chiama **Registry e non Scheduler** apposta: non ordina niente. Le fasi sono fisse, ma
+dentro una fase vale l'**ordine di registrazione** — che devi ancora conoscere tu.
+
+⚠️ `LightingSystem` va aggiunto **prima** di `MeshRenderSystem`, altrimenti le uniform delle
+luci arrivano dopo le mesh che dovevano illuminare.
+
+⚠️ Un system che implementa **due** fasi di update si vede chiamare `OnUpdate` **due volte**
+per tick, una per fase: le interfacce condividono lo stesso metodo. È voluto — è cosa
+significa stare in due fasi — ma è una trappola se l'hai fatto per sbaglio.
+
+Fail-fast: un `ISystem` che non implementa **nessuna** interfaccia di fase è un errore
+(non girerebbe mai, in silenzio), e registrare due volte la stessa istanza pure.
+
+### Traceability: chi agisce su questa entità
+
+Ogni system può **dichiarare** i componenti su cui agisce. È ciò che permette all'Inspector
+di rispondere a "perché questa entità non si muove?" senza far girare niente:
+
+```csharp
+public IReadOnlyList<Type> MatchedComponents { get; } =
+    [typeof(TransformComponent), typeof(VelocityComponent)];
+```
+
+È un *default interface member* con default vuoto: i system esistenti non si rompono, ma
+chi non dichiara resta **`SystemMatch.Unknown`** — "non si sa", che l'UI mostra come `?` e
+non come "no".
+
+Ci sono **due verbi**, e la differenza conta:
+
+```csharp
+// Su chi il system AGISCE (l'insieme che decide chi processa):
+public IReadOnlyList<Type> MatchedComponents { get; } = [typeof(CameraComponent), typeof(TransformComponent)];
+
+// Cosa GUARDA senza toccarlo (opzionale, default vuoto):
+public IReadOnlyList<Type> ObservedComponents { get; } = [typeof(PlayerComponent), typeof(TransformComponent)];
+```
+
+Il caso reale è `CameraFollowSystem`: **agisce** sulla camera, ma **legge** il player. Senza
+il secondo verbo, chi si chiede "perché la camera non mi segue?" guarda il player e non trova
+il system. Si interrogano con `SystemsActingOn(entity)` e `SystemsObserving(entity)`.
+
+Si chiama `Observed` e non `Read` perché "legge" non distingue niente: un system legge *anche*
+i componenti che matcha. Dichiaralo **solo** se il system guarda entità che non tocca — una
+dichiarazione inventata è peggio di nessuna (nel progetto ce n'è **una sola**).
+
+⚠️ Entrambe le liste sono **metadata scritta a mano**: possono mentire e andare fuori sincrono
+col codice. `ObservedComponents` è anzi *meno* affidabile perché è opzionale — una sezione
+vuota non prova che nessuno legga l'entità. È un aiuto diagnostico, **non una prova**.
 
 ---
 
@@ -342,9 +439,34 @@ primitive `Plane`/`Grid` disegnate immediate-mode restano non illuminate.
 
 ### Camera
 
-`Camera3D` (`Rendering/Camera3D.cs`): `Position`, `Target`, `Up`, `FovY`,
-`Projection`. Per una camera di debug WASD + mouse look c'è
-`FreeFlyCamera3DController` (`Rendering/Editor/`).
+Una camera **d'autore** è un'entità: `CameraComponent` (solo l'ottica — `FovY`, `Near`,
+`Far`, `Projection`, `Primary`) più il `TransformComponent`, che dà la **posa**. È il
+modello Unity: la camera non duplica `Position`/`Target`, li eredita dal suo Transform
+(gerarchia inclusa). Così finisce nel file scena, si seleziona nella Hierarchy e si muove
+col gizmo come qualunque altra entità.
+
+```csharp
+var camera = world.CreateEntity();
+world.AddComponent(camera, new TransformComponent { Position = new Vector3(0, 18, 28) });
+world.AddComponent(camera, new CameraComponent { FovY = 60f, Primary = true });
+
+// La camera "risolta" per disegnare/proiettare: derivata da Transform + CameraComponent.
+// Entrambe restituiscono Camera3D? — null se l'entità non è una camera / se non ce n'è nessuna.
+Camera3D? cam     = world.GetCamera(camera);
+Camera3D? primary = world.GetPrimaryCamera();   // la Primary, con fallback sulla prima
+```
+
+`Camera3D` (`Rendering/Camera3D.cs`) resta la camera **risolta**, cioè l'oggetto di
+matematica pura (`GetViewMatrix`, `GetRay`, `WorldToViewport`, frustum): non si crea a mano
+per il gioco, la si **deriva** dal World. Va letta **per frame** — è un valore calcolato,
+non un oggetto persistente a cui restare agganciati.
+
+⚠️ «Esiste sempre una camera» non è un invariante: da quando l'editor può cancellare entità,
+`GetPrimaryCamera` può fallire e chi disegna deve degradare, non crashare.
+
+La camera con cui si **naviga nell'editor** è un'altra cosa e sta apposta fuori dal World
+(`EditorHost.SceneCamera`, mossa dal `FreeFlyCamera3DController` in `Rendering/Editor/`): è
+stato dell'editor, non dato di scena. Vedi `ROADMAP.md` Fase 4.5.
 
 ---
 
@@ -356,9 +478,14 @@ usa un **registry di binder** (`Scenes/`). Vedi `ROADMAP.md` Fase 3 per il razio
 ```csharp
 // 1) registra i binder: built-in dell'engine + eventuali custom del gioco
 var registry = new SceneComponentRegistry();
-registry.RegisterEngineDefaults();  // Transform, MeshRenderer
-registry.Register("Player",   data => data.Deserialize<PlayerComponent>(SceneJson.Options));
-registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJson.Options));
+registry.RegisterEngineDefaults();  // Transform, MeshRenderer, Light, RigidBody, Camera, Parent
+
+// createDefault è opzionale e serve all'EDITOR: senza, il componente si salva e si carica
+// ma "Aggiungi componente" non sa come crearne uno (vedi §8.1).
+registry.Register("Player", data => data.Deserialize<PlayerComponent>(SceneJson.Options),
+    createDefault: () => new PlayerComponent { Name = string.Empty });
+registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJson.Options),
+    createDefault: () => new VelocityComponent { Velocity = Vector3.Zero });
 
 // 2) carica e istanzia (l'AssetManager serve ai binder che caricano risorse, es. ModelPath)
 var scene = JsonSceneLoader.Load(path);      // Scene: nome + lista di EntityDefinition
@@ -393,6 +520,55 @@ I nuovi campi `Layer`/`SortingOrder` sono opzionali: se assenti valgono i defaul
 (`Opaque`, `0`). I tipi math (`Vector3`, `Quaternion`, `Color`) hanno converter
 dedicati (`Scenes/Json/`); gli enum sono stringhe (`"Cube"`, `"Transparent"`).
 Un componente citato nel JSON ma senza binder registrato → errore **fail-fast**.
+
+### 8.1 Rendere un componente aggiungibile dall'editor
+
+Il registry non serve solo al file: è anche **l'elenco dei tipi di componente che questo
+gioco ha**, ed è da lì che l'editor prende la lista di "Aggiungi componente". Perché una
+factory dichiarata e non un `default(T)` automatico: vedi `ROADMAP.md` Fase 4.7 — in breve,
+i componenti sono struct di dati nudi e `default(T)` è un default *rotto* (Transform con
+`Scale = 0` è invisibile, Light con `Intensity = 0` non illumina), quindi l'utente vedrebbe
+"componente aggiunto" e nessun effetto.
+
+```csharp
+registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJson.Options),
+    createDefault: () => new VelocityComponent { Velocity = Vector3.Zero });
+```
+
+- **Il default va scelto perché si veda**, non perché compili: è il criterio con cui sono
+  scritti quelli dell'engine (`RegisterEngineDefaults`).
+- ⚠️ Se il componente è una **class** (come `MeshRendererComponent`), la factory deve
+  costruirne uno **nuovo a ogni chiamata**: restituire un'istanza condivisa farebbe editare
+  lo stesso oggetto a tutte le entità che l'aggiungono.
+- Senza `createDefault` il componente **resta nell'elenco dell'editor ma spento, col
+  motivo**: è il caso di `Parent`, dove è voluto (un genitore di default non esiste — ci si
+  riparenta dalla Hierarchy).
+- ⚠️ `NameComponent` **non** è registrato: nel file il nome è il campo `name` dell'entità,
+  non un componente. Il rovescio è che l'editor non sa aggiungerlo.
+
+Perché l'editor lo veda, il registry va **dichiarato fra le Resources** (come il
+`SystemRegistry`, e per lo stesso motivo — vedi §4.5):
+
+```csharp
+resources.Add(registry);
+```
+
+### 8.2 Campi che puntano a un asset
+
+Un campo che tiene un handle (`ModelHandle`) **non** va esposto con
+`[EditorConfiguration]`: l'handle è un id di cache valido solo per questa esecuzione, e
+mostrarlo darebbe da editare un numero che al riavvio punta a un modello a caso. Il dato
+d'autore è il **path**. Si marca invece con `[EditorAsset]`, e l'editor mostra uno **slot**
+in cui trascinare un file dal pannello File system:
+
+```csharp
+[EditorAsset(AssetKind.Model)] public ModelHandle Model;
+```
+
+Il tipo dichiarato **è** la validazione: un `.mp3` sopra uno slot `Model` non si può proprio
+lasciar cadere. ⚠️ Lo slot non conosce gli altri campi del componente: assegnare un modello a
+un `MeshRenderer` con `Kind = Cube` riempie il campo e non cambia cosa si vede (il tooltip
+dello slot lo dice).
 
 ---
 
@@ -439,8 +615,10 @@ path (con cache: stesso file = un solo load) e restituisce **handle opachi**
 raylib); il gioco lo **riceve** in `Init`:
 
 ```csharp
-public void Init(InputHandler input, AssetManager assets)
+public void Init(Resources resources)
 {
+    var assets = resources.Get<AssetManager>();
+
     MusicHandle intro = assets.LoadMusicStream("audio/intro.mp3");
     assets.PlayMusic(intro);
 
@@ -475,7 +653,8 @@ gira nel fixed-step):
 
 ```csharp
 IPhysicsWorld physics = new BepuPhysicsWorld(new Vector3(0, -9.81f, 0));
-AddSystem(new PhysicsSystem(physics));
+resources.Add(physics);              // chi lo crea lo dichiara: qui il mondo fisico è del gioco
+_systems.Add(new PhysicsSystem(physics));
 // in Shutdown(): physics.Dispose();
 ```
 

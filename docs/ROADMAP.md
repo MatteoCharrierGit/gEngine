@@ -49,11 +49,34 @@ Il cuore matematico, già in ottica 3D.
     `World.GetWorldMatrix(entity)` (`src/gEngine/Ecs/Base/WorldTransforms.cs`)
   - [x] Composizione `World = Local * ParentWorld` (locale del figlio a SINISTRA, per la
     convenzione row-vector di `System.Numerics` — opposto del `Parent * Local` OpenGL)
+  - [x] **L'inverso**: `World.SetWorldPose(entity, position, rotation)` (Fase 4.5) — scrivere
+    una posa **mondo** su un'entità, cioè `Local = World * inverse(ParentWorld)`
+    - Verificato numericamente su 50k pose, gerarchie a 2-3 livelli: ordine giusto **2.5e-5**
+      (posizione) / **8.6e-7** (orientamento); **l'ordine opposto** `inverse(ParentWorld) * World`
+      sbaglia di **675** / **2.0** (il massimo possibile per un quaternione). Sette ordini di
+      grandezza: come per l'ordine dei quaternioni dei gizmi, **la verifica discrimina davvero**
+      invece di passare comunque. Caso root: identico **bit a bit** alla scrittura diretta
+    - `Matrix4x4.Invert` **può fallire** (genitore a scala 0): ritorna `false` e non scrive.
+      Non ricade sull'identità — leggere una posa qualunque è tollerabile, **scriverla**
+      teletrasporterebbe l'entità nell'origine
+    - ⚠️ **Limite noto, trovato misurando**: con genitore a scala **non uniforme** la posizione
+      resta esatta (7.7e-6) ma l'**orientamento sbaglia di ~90° in mediana**, *in silenzio*.
+      Non è arrotondamento: in row-vector la 3x3 è `S_figlio * R_figlio * S_genitore * R_genitore`,
+      e la scala del genitore cade **in mezzo** alle due rotazioni — commuta solo se uniforme.
+      Con shear, il quaternione locale che darebbe quell'orientamento **non esiste**. Oggi non
+      morde (camere root, l'unico genitore vivo di `demo.json` ha scala uniforme), ma è un
+      compromesso consapevole e non una svista: il commento iniziale diceva "l'orientamento è
+      il migliore disponibile" ed è stato corretto perché **la misura l'ha smentito**
   - [x] `MeshRenderSystem` usa la world matrix risolta invece del solo `GetLocalMatrix()`
   - [ ] *(rimandato)* Cache con **dirty flag**: oggi il ricalcolo è ricorsivo on-demand,
     senza cache e senza guard sui cicli — sufficiente per scene costruite a mano
   - [x] Authoring del `Parent` da **file scena**: risolto con istanziazione a due passate
     (mappa `name → Entity` nel `SceneBindContext`); `"Parent": "nomeGenitore"` nel JSON
+    - ⚠️ Scoperto in Fase 4: il binder c'era e funzionava, ma **nessuna scena lo usava** —
+      il path era di fatto non esercitato e avrebbe potuto regredire senza che nulla lo
+      segnalasse. Ora `demo.json` ha `lamp-blue` figlia di `player` (l'unica entità con un
+      `Parent`), quindi la gerarchia è coperta dalla scena di demo e visibile nell'albero
+      della Hierarchy
 
 **Milestone:** entità con posizione/rotazione/scala 3D reali. ✅
 
@@ -206,31 +229,859 @@ binder per tipo**, tenuto data-driven end-to-end:
 
 ---
 
-## Fase 4 — Editor MVP 🔴 
+## Fase 4 — Editor MVP 🟢
 
 UI immediate-mode dentro la finestra Raylib.
 
-- [ ] **Integrazione ImGui**
-  - [ ] `ImGui.NET` + `rlImGui-cs` agganciati al loop
-  - [ ] Docking/layout base dei pannelli
-- [ ] **Pannello Hierarchy**
-  - [ ] Lista entità della scena attiva, selezione
-  - [ ] Crea/duplica/elimina entità
-- [ ] **Pannello Inspector** (reflection-driven)
-  - [ ] Mostra i componenti dell'entità selezionata
-  - [ ] Editing campi Transform (position/rotation/scale)
-  - [ ] Editing generico dei campi (float/int/bool/Vector3/enum)
-  - [ ] **Aggiungi/Rimuovi componente** da UI
-- [ ] **Viewport & manipolazione**
-  - [ ] Rendering della scena nel viewport dell'editor
-  - [ ] **Picking** (clic per selezionare un'entità)
-  - [ ] **Gizmi** move/rotate/scale (valuta **ImGuizmo.NET**) 🔴
-- [ ] **Persistenza**
-  - [ ] Bottoni Save/Load scena
-- [ ] **Play/Stop**
-  - [ ] Esegui i system dentro l'editor, con pausa/stop
+Scelta di layering: l'editor vive in un **progetto separato** (`src/gEngine.Editor/`,
+referenzia `gEngine`), che è l'unico a dipendere da `ImGui.NET`/`rlImgui-cs`. Qui il
+confine di isolamento è il **progetto**, non il file: diverso da `IRenderer`, dove la
+regola è "un solo file importa `Raylib_cs`". Il motivo è che l'astrazione lì serve a
+tenere raylib fuori dai *system* ECS, mentre un pannello è codice UI per natura —
+avvolgere ImGui dietro un port darebbe poco e si romperebbe subito ai **gizmi**, perché
+ImGuizmo vuole il contesto ImGui grezzo. Il beneficio vero (il core engine senza
+dipendenze da ImGui, e un gioco che spedisce senza editor) lo dà già la separazione in
+assembly.
 
-**Milestone:** aggiungi entità, modifichi transform e componenti e salvi, **senza toccare codice**. 🏆
+- [x] **Integrazione ImGui**
+  - [x] `ImGui.NET` 1.91.6.1 + `rlImgui-cs` 3.2.0 agganciati al loop
+    - ⚠️ Nota: `rlImgui-cs` dichiara `Raylib-cs >= 7.0.1` (range aperto) ed è compilato
+      contro il 7, ma gira contro il **8.0.0** che usa l'engine — verificato a runtime,
+      nessun problema. NuGet unifica su 8.0.0, niente downgrade.
+  - [x] Docking/layout base dei pannelli — `rlImGui.Setup(darkTheme: true, enableDocking: true)`
+    + `ImGui.DockSpaceOverViewport(...)`. ImGui.NET 1.91.6.1 include il **branch docking**
+    (`ImGuiConfigFlags.DockingEnable` esiste), non serve un pacchetto separato
+    - ⚠️ Nota: il dockspace va creato con `ImGuiDockNodeFlags.PassthruCentralNode`,
+      altrimenti la finestra host copre lo schermo col proprio sfondo opaco e la scena 3D
+      sparisce
+    - ⚠️ Nota: ImGui salva il layout in un **`imgui.ini`** che scrive nella *working
+      directory* — cioè nel sorgente, non in `bin/`. Aggiunto al `.gitignore`: è stato
+      locale della finestra, non del progetto
+  - [x] **Chi possiede l'editor: il gioco, non il `GameLoop`.** I tre agganci che ImGui
+    vuole esistono già in `IGame` con le garanzie giuste — `Init` gira dopo `InitWindow`
+    (rlImGui carica l'atlas dei font: serve contesto grafico), `Draw` è già dentro
+    `BeginFrame`/`EndFrame`, `Shutdown` gira prima di `CloseWindow`. Quindi **zero
+    modifiche al contratto `IGame`** e nessun `#if EDITOR`: chi non vuole l'editor non
+    referenzia il progetto
+  - [x] Guard sull'input conteso: `EditorHost.WantsMouse`/`WantsKeyboard`
+    (`ImGui.GetIO().WantCaptureMouse/Keyboard`) — senza, un clic su un pannello ruota
+    anche la camera. `SandboxGame` li interroga prima di far girare gli input system e
+    il `FreeFlyCamera3DController`
+  - [x] Toggle dell'editor con **F1** (`GameAction.ToggleEditor`)
+    - ⚠️ Gotcha appreso: il toggle sta in `Draw`, **non** in `Update`. `Update` è a passo
+      fisso e in un frame lento gira più volte, mentre l'`InputHandler` fa polling una
+      volta per frame: un input edge-triggered letto lì verrebbe consumato a ogni
+      iterazione, ribaltando l'editor due volte (= nessun effetto). Vale per qualunque
+      azione "premuto una volta"
+- [x] **Pannello Hierarchy**
+  - [x] Lista entità della scena attiva, selezione — `HierarchyPanel`
+    (`src/gEngine.Editor/Panels/`), albero che rispetta i `ParentComponent`
+  - [x] `EditorContext` — selezione condivisa fra i pannelli (`Entity? Selected`).
+    Separato dai pannelli apposta: la selezione sopravvive alla singola finestra e
+    servirà a Inspector e gizmi
+  - [x] `NameComponent` (`src/gEngine/Ecs/Component/`) — l'etichetta delle righe.
+    Prima il `name` del file scena serviva **solo** a risolvere i riferimenti `Parent` e
+    per scelta esplicita "non finiva nel World": la Hierarchy però ha bisogno di meglio di
+    "Entity 7", e il Save dovrà riscrivere quel campo. Ora `SceneInstantiator` lo copia
+    nel World. Resta un campo a sé e non una chiave di `components`: il nome identifica
+    l'entità nel file, quindi va letto nella **prima** passata, prima di ogni binder
+  - [x] `World.AllEntities` + `World.Exists(entity)` — la Hierarchy elenca anche le entità
+    senza componenti, quindi non può partire da una `Query`
+  - ⚠️ Nota: l'albero è ricostruito da zero ogni frame. `ParentComponent` tiene solo il
+    riferimento verso l'alto (un solo punto di verità), quindi la direzione padre→figli va
+    comunque derivata, e una cache andrebbe invalidata a ogni modifica dell'editor. Se un
+    giorno pesa, il posto giusto è lo stesso dirty flag già rimandato per le world matrix
+  - [x] Crea/duplica/elimina entità — toolbar del pannello + `EntityOperations`
+    (`src/gEngine.Editor/`). Stanno nell'editor e non nel `World` perché sono **politiche**,
+    non meccanismi: "duplicare = copiare tutto tranne lo stato di runtime" e "eliminare =
+    portarsi via i figli" sono decisioni dell'editor; il World offre i mattoni e non ha
+    opinioni
+    - [x] `World.DestroyEntity` — gli id **non si riusano** (`_entityCounter` cresce e
+      basta), quindi un `Entity` tenuto da parte non può aliasare un'entità nuova: è il
+      motivo per cui qui non serve un contatore di generazione. I riferimenti pendenti
+      restano possibili e sono gestiti a valle (`GetWorldMatrix` ricade su identità, la
+      Hierarchy tratta il figlio come radice)
+    - [x] `[RuntimeState]` (`src/gEngine/Ecs/Component/RuntimeStateAttribute.cs`) —
+      duplicare un'entità copiando *tutto* copierebbe anche `PhysicsBodyComponent`, con
+      **due entità sullo stesso corpo Bepu**. La regola viveva solo in un commento ("è
+      stato di runtime, non dato d'autore"); ora è un attributo che l'editor legge, così
+      il prossimo componente-link non ri-scopre il bug
+    - [x] Il duplicato prende un **nome libero** (`falling-cube-red (1)`). Non è estetica:
+      il `name` è il bersaglio dei riferimenti `Parent` nel file scena, e due omonime al
+      reload collasserebbero nella mappa `name → Entity` — vince l'ultima, in silenzio
+    - ⚠️ Scoperto abilitando l'eliminazione: `SandboxGame.Draw` faceva `.First()` sulla
+      query del player, quindi **cancellare il player faceva crashare il gioco**. "Esiste
+      sempre un player" non è più un invariante da quando c'è un editor: ora l'HUD degrada
+      a "Nessun player"
+- [x] **Pannello Inspector** (reflection-driven) — `src/gEngine.Editor/Panels/InspectorPanel.cs`
+  - [x] Mostra i componenti dell'entità selezionata
+  - [x] **`[EditorConfiguration]`** (`src/gEngine/Ecs/Component/EditorConfigurationAttribute.cs`) —
+    l'Inspector mostrava **tutti** i campi pubblici: il default era "esponi" e nessuno l'aveva
+    deciso, così ogni campo nuovo (un accumulatore, una cache) si prendeva un DragFloat
+    nell'UI. Ora il default si inverte — si vede solo ciò che è marcato — e la scelta torna a
+    chi scrive il componente, l'unico che sa quali dei suoi campi sono dati d'autore
+    - È il gemello a livello di **membro** di `[RuntimeState]`, che esclude un componente
+      intero: stessa idea (l'editor manipola dati che non conosce e ha bisogno che il tipo gli
+      dica cosa toccare), granularità diversa. Sta nell'engine e **non** in `gEngine.Editor`
+      per lo stesso motivo: l'attributo è *letto* dall'editor ma *scritto* da chi definisce i
+      dati, e un gioco che spedisce senza editor non può perdere gli attributi dei suoi
+      componenti
+    - Vale su **campi e proprietà**: l'Inspector leggeva solo `GetFields`, quindi decorare una
+      proprietà avrebbe compilato senza mostrare niente — una trappola silenziosa, cioè
+      esattamente ciò che l'attributo doveva togliere di mezzo. Le proprietà passano dal loro
+      accessor, quindi un setter con dentro validazione/clamp viene rispettato
+    - Parametro `label` opzionale (`[EditorConfiguration("Massa")]`). **Niente flag readonly**:
+      un campo `readonly` o una proprietà senza setter lo dicono già da sé, e ricadono nella
+      stessa vista in sola lettura dei tipi fuori elenco. Un secondo modo di dire la stessa
+      cosa sarebbe solo un modo in più di dirla storta
+    - Un componente senza nessun membro marcato resta **visibile come header** ("nessuna
+      proprietà esposta"): sparire nasconderebbe che il componente c'è, che è metà
+      dell'informazione. È il caso di `Parent` (riferimento a un'entità: si riparenta
+      dall'albero della Hierarchy, non battendo un id a mano) e di `MeshRenderer.Model`
+      (handle: il dato d'autore è il *path*, vedi `SceneWriteContext` — serve un asset picker)
+  - [x] Editing campi Transform (position/rotation/scale)
+    - ⚠️ **"Non si riesce a scrivere numeri nei fields"** non era un bug nostro: un clic
+      semplice su un `Drag*` **trascina**, e per digitare ImGui vuole il **Ctrl+Click**. Una
+      scorciatoia che non si vede da nessuna parte. Curato col cartello (tooltip
+      "Ctrl+Click per digitare"), perché non esiste un `ImGuiSliderFlags` "clic = digita" —
+      l'unico in tema è `NoInput`, che toglie *anche* il Ctrl+Click — e sostituire i Drag con
+      `InputFloat` pagherebbe il trascinamento, che su un transform è il modo normale di
+      lavorare
+    - Il sospetto ovvio era un altro ed è stato **scartato coi fatti**, non per fiducia:
+      rlImgui-cs 3.2.0 (decompilato: il nuget ha solo la DLL) pompa `GetCharPressed()` in
+      `io.AddInputCharacter` **senza guard** su `WantCaptureKeyboard` — il guard che si temeva
+      non esiste in questa versione. Guidando la finestra con eventi sintetici: i caratteri
+      arrivano in `io.InputQueueCharacters`, un clic su un `InputText` lo attiva e ci si
+      scrive (campo Nome: `player` → `player-EDIT`, write-back incluso), e col Ctrl+Click
+      anche i Drag accettano la digitazione. La catena ImGui/rlImgui è **sana**
+    - ⚠️ Gotcha del banco di prova, non del prodotto: un `WM_KEYUP` sintetico con `lParam=0`
+      GLFW lo legge come *press* (`KF_UP` sta in `HIWORD(lParam)`), quindi il Ctrl restava
+      premuto per sempre — e ImGui **ignora i caratteri mentre Ctrl è giù**. Sembrava
+      "Ctrl+Click apre il campo ma non ci si scrive": era il banco. Col `lParam` giusto
+      (`0xC01D0001`) il valore si digita e commit
+  - [x] Editing generico dei campi — `float`/`int`/`bool`/`Vector3`/`Quaternion`/`Color`/
+    `string`/`enum`. Tipi fuori elenco (`Entity`, `ModelHandle`) mostrati in **sola
+    lettura**: sono riferimenti, non numeri — un DragInt sull'id di un'entità è un piede
+    nel fucile. Serviranno widget dedicati (un picker)
+  - [x] **Accesso non generico ai componenti** (`IComponentStorage`): l'Inspector deve
+    chiedere "quali componenti ha l'entità X" senza conoscerne i tipi a compile time, ma
+    l'interfaccia esponeva solo `Count`. Aggiunti `ComponentType`, `Has`, `GetBoxed`,
+    `SetBoxed`, `Remove`, più `World.ComponentStorages`. I system non passano di qui:
+    continuano a usare `Query<T>`, tipizzata e senza boxing
+    - ⚠️ **Il write-back torna a mordere qui.** `GetBoxed` su uno struct restituisce una
+      **copia** boxed: l'Inspector muta la scatola via reflection e la riscrive con
+      `SetBoxed`. Senza quella riscrittura il pannello sembrerebbe funzionare e non
+      salverebbe niente. `MeshRendererComponent` è una `class`, quindi lì la mutazione è
+      già in loco e il `SetBoxed` è una riscrittura innocua dello stesso riferimento:
+      trattarli uguale evita di distinguere i due casi
+  - [x] Rotazione mostrata in **gradi** (`EulerAngles`), non come quaternione grezzo:
+    nessuno legge `(x:0.38, y:0, z:0, w:0.92)`. Convenzione **yaw(Y)→pitch(X)→roll(Z)**,
+    la stessa di `Quaternion.CreateFromYawPitchRoll`, così andata e ritorno usano lo
+    stesso ordine — verificata numericamente (200k rotazioni casuali con |pitch| ≤ 89°,
+    errore max `1-|dot|` ≈ 3e-7) e poi sui dati veri: il player di `demo.json`
+    (`w:0.7071, y:-0.7071`) legge `-89.999°`
+    - ⚠️ A pitch ±90° (gimbal lock) la scomposizione è ambigua e i numeri possono saltare
+      mentre trascini, pur restando corretta la rotazione. La cura vera è un Eulero "di
+      lavoro" per-entità invece di ri-derivarlo ogni frame; non serve finché non dà fastidio
+  - [x] **Aggiungi/Rimuovi componente** da UI — chiuso in **Fase 4.7**: la strada ipotizzata
+    qui (estendere il `SceneComponentRegistry` con una factory del default) è quella che è
+    stata presa. **Rimuovi** non è più il bottone `X` sull'header ma un menu contestuale
+  - ⚠️ Nota di layout: i pannelli nascono con `SetNextWindowPos/Size(..., ImGuiCond.FirstUseEver)`.
+    Senza, ImGui dà a ogni finestra la stessa posizione di default e al primo avvio i
+    pannelli si sovrappongono (successo davvero). `FirstUseEver` e non `Always`: dopo il
+    primo avvio comanda il layout salvato dall'utente in `imgui.ini`
+- [x] **Viewport & manipolazione** — *deciso: due viste render-to-texture, come Unity*
+  - [x] Rendering della scena nel viewport dell'editor: la scena è disegnata su
+    **RenderTexture** e mostrata come pannello ImGui (`ViewportPanel`), invece che a tutto
+    schermo con la UI sopra. `IRenderer` esteso con i render target
+    (`RenderTargetHandle` + `CreateRenderTarget`/`BeginRenderTarget`/`EndRenderTarget`/
+    `DestroyRenderTarget`/`GetRenderTargetTextureId`), stesso schema di handle opachi degli
+    asset. A tutto schermo si torna con F1 (editor chiuso), che è il gioco vero
+    - [x] `GetRenderWidth/Height` **distinti** da `GetScreenWidth/Height`: chi calcola un
+      aspect ratio (proiezione, frustum) deve usare la superficie su cui sta disegnando.
+      `MeshRenderSystem` prendeva la misura della finestra e dentro un pannello largo la
+      metà avrebbe cullato le entità sbagliate
+    - [x] `GetRenderTargetTextureId` restituisce un `nint`: è l'unica crepa voluta nel port
+      — un'immagine ImGui **è** un handle GPU grezzo, e un tipo intermedio nasconderebbe
+      solo che i due lati devono parlare della stessa texture
+    - ⚠️ Il target insegue la taglia del pannello con **un frame di ritardo**: si riempie
+      prima di aprire il frame ImGui, ma la taglia del pannello si sa solo mentre ImGui lo
+      dispone, cioè dopo. Durante un resize la vista è vecchia di un frame, non rotta
+    - ⚠️ Trovato guardando i pixel: l'immagine alta quanto lo spazio disponibile fa sforare
+      il contenuto e ImGui tira su la **scrollbar verticale**, che si mangia ~14px di
+      `GetContentRegionAvail().X` — il frame dopo il target si ricrea più stretto, cioè la
+      vista si restringe da sola e butta via una render texture a ogni comparsa della barra.
+      `ImGuiWindowFlags.NoScrollbar`: una vista 3D non scrolla, si ridimensiona
+    - ⚠️ Le render texture di raylib (OpenGL) hanno l'origine in **basso** a sinistra e
+      ImGui in alto: la V va invertita (`uv0=(0,1)`, `uv1=(1,0)`) o la vista è capovolta
+    - ⚠️ ImGui identifica le finestre **per titolo**: `ScenePanel` faceva `Begin("Scena")` e
+      il viewport pure, quindi non erano due pannelli ma lo **stesso pannello riempito due
+      volte** — i bottoni Salva/Ricarica finivano dentro la vista 3D, senza un warning.
+      Il pannello del documento ora è `"File scena"`: il nome "Scena" spetta alla vista, e
+      quel pannello parla del file (come diceva già il suo commento)
+  - [x] **Vista Scena e vista Game separate**, visibili insieme, ognuna con la sua camera
+    - [x] La camera di scena appartiene ora all'editor (`EditorHost.SceneCamera`, mossa dal
+      `FreeFlyCamera3DController` che l'editor possiede), quella di gioco **al World**
+      (entità `game-camera` in `demo.json`, mossa dal `CameraFollowSystem`). Convivevano solo
+      perché non si guardavano mai insieme: appena le viste diventano due, la contesa si vede
+      — navigare la scena sposterebbe l'inquadratura del giocatore
+      - ⚠️ Aggiornato in Fase 4.5: la camera di gioco era `SandboxGame._gameCamera`, un campo
+        del sample. Ora è dati di scena (vedi Fase 4.5), e l'asimmetria con la camera di scena
+        **è voluta**: la prima è dato d'autore, la seconda è stato dell'editor
+    - ⚠️ **Il guard `WantsMouse` non regge più** per la camera di scena. Da quando il 3D sta
+      dentro un pannello, il puntatore sopra la vista **è** sopra una finestra ImGui, quindi
+      `WantCaptureMouse` è sempre vero e la camera non si muoverebbe mai. Il gate giusto è
+      "il puntatore è sopra la vista Scena", e lo sa solo il viewport → `EditorHost.Update`.
+      `WantsMouse`/`WantsKeyboard` restano validi per tutto il resto
+    - ⚠️ Il free-fly ha ora un **latch**: il gate vale solo sull'**inizio** del volo. Durante
+      il volo il cursore è bloccato al centro della finestra, quindi "sono ancora sopra il
+      viewport?" smetterebbe di essere vero proprio mentre lo si usa
+    - ⚠️ Bug di sponda, trovato riscrivendo il controller: `Math.Clamp(Pitch, -89f, 89f)`
+      clampava **radianti** con un limite in gradi (±89 rad ≈ ±5000°), cioè non clampava
+      niente — oltre il polo la camera si ribaltava, perché `Up` resta fisso a +Y
+  - [x] **Picking** (clic per selezionare un'entità) — `EntityPicker` + `Camera3D.GetRay` +
+    `Ray.IntersectsUnitCube` (metodo delle slab, `src/gEngine/MathUtils/Ray.cs`)
+    - ⚠️ **`IPhysicsWorld.Raycast` era la dipendenza sbagliata**, non solo "rimandata": si
+      seleziona ciò che si **vede**, e metà della scena non ha un `RigidBody` (le luci, la
+      lampada figlia del player) — col mondo fisico sarebbero invisibili al clic pur stando
+      lì sullo schermo. E i corpi Bepu esistono solo mentre la fisica gira, mentre l'editor
+      deve selezionare a simulazione ferma, cioè sempre prima del Play. L'ingombro giusto è
+      quello che usa già `MeshRenderSystem` per il culling, e infatti il picker ricalcola la
+      **stessa identica world matrix**: quel che si disegna è quel che si clicca. Eredita lo
+      stesso limite noto (cubo unitario finché non ci sono i bounds per-mesh)
+    - Verificato: proiettando il centro di ogni entità sul suo pixel e risparandoci una
+      semiretta, **7 entità su 7 riprendono se stesse**, e un pixel d'angolo non colpisce
+      niente
+  - [x] **Gizmi** move/rotate/scale — `TransformGizmo`, **scritti a mano** 🔴
+    - ⚠️ **ImGuizmo.NET non è agganciabile a questo stack**, ed era dato per scontato:
+      `Twizzle.ImGuizmo.NET` (1.89.4) dipende da un *altro* binding di ImGui, mentre qui c'è
+      `ImGui.NET` 1.91.6.1 con `rlImgui-cs` compilato contro di esso — affiancarli dà due
+      assembly che definiscono entrambi `ImGuiNET.ImGui` e due `cimgui.dll` native che si
+      sovrascrivono, e 1.89/1.91 hanno un `ImGuiContext` con ABI diverso, che è proprio la
+      struttura che `SetImGuiContext` dovrebbe condividere. Il bundle autoconsistente
+      (`Twizzle.ImGui-Bundle.NET`) risolve il conflitto fra nativi ma lascia rlImgui-cs
+      legato all'assembly `ImGui.NET`: due contesti ImGui in volo. `Hexa.NET.ImGuizmo` è di
+      un altro ecosistema e non ha un backend raylib. Restava o forkare rlImgui-cs per
+      sempre, o scrivere la matematica — che il progetto ha già in casa
+    - ⚠️ **Cade quindi la motivazione scritta qui sopra** ("l'unico punto che giustifica di
+      non aver avvolto ImGui dietro un port: vuole il contesto grezzo"). La conclusione
+      regge — un pannello è codice UI per natura — ma non per quel motivo
+    - [x] Disegno sul **draw list** di ImGui: le maniglie sono linee 2D proiettate con
+      `Camera3D.WorldToViewport` (l'inverso esatto di `GetRay`), non geometria 3D.
+      L'interazione invece è in 3D, con le stesse semirette del picking
+    - [x] Assi **locali dell'oggetto** (il pivot "Local" di Unity). Non è solo una scelta
+      d'uso: rende rotazione e scala esatte per costruzione, perché `Rotation` e `Scale` sono
+      già in quello spazio e il genitore non entra nel conto. L'unico che deve attraversare
+      la gerarchia è lo spostamento, perché `Position` vive nello spazio del **genitore**
+    - ⚠️ Ordine dei quaternioni verificato numericamente invece che per fiducia (200k
+      rotazioni casuali): `Concatenate(delta, start)` ruota attorno all'asse locale con
+      errore max 3e-7 — e l'**ordine opposto sbaglia di 0.558**, quindi la verifica
+      discrimina davvero. Stessa famiglia dei gotcha del transpose e del row-vector
+    - ⚠️ Il write-back delle struct morde anche qui: `TryGetComponent` dà una **copia** del
+      `TransformComponent`, e senza `AddComponent` finale il gizmo sembrerebbe funzionare
+      senza muovere niente. Terzo posto dopo `MovementSystem` e l'Inspector
+    - ⚠️ Misurato di sponda: `GetRay`→`WorldToViewport` non torna esatto ma sbaglia di
+      **~0.24px** con `Near=0.01`/`Far=1000` (i default di raylib). È precisione float
+      nell'invertire la proiezione, non un errore di formula: l'errore è **piatto rispetto
+      alla distanza** (0.24px a 2 unità come a 190) e scala solo col rapporto near/far
+      (0.1/1000 → 0.03px; 1/100 → 0.002px). Sotto il pixel non tocca né picking né maniglie
+    - [ ] *(non esercitato)* Il **trascinamento** è verificato solo nella sua matematica
+      (punto più vicino fra asse e semiretta confrontato con una minimizzazione a forza
+      bruta su ~20k casi): manca una prova col mouse in mano
+- [x] **Persistenza** — `SceneDocument` (+ menu **File**, vedi Fase 4.6)
+  - [x] Save/Load scena — erano bottoni in un pannello `ScenePanel` provvisorio, ora sono
+    voci del menu File; il pannello è stato **eliminato** (vedi Fase 4.6)
+  - [x] **`SceneSerializer`** (`src/gEngine/Scenes/`) — verso opposto di
+    `SceneInstantiator`, e come lui non conosce nessun tipo: chiede al registry come si
+    chiama e come si scrive ogni tipo che trova negli storage. Round-trip verificato sul
+    `demo.json` reale: **zero differenze semantiche** (le uniche differenze sono i default
+    impliciti resi espliciti — `{"w":1}` → `{"x":0,"y":0,"z":0,"w":1}`)
+  - [x] `SceneWriteContext` — lo specchio di `SceneBindContext`, con le mappe percorse al
+    contrario: `Entity → nome` (gli id non sopravvivono al reload, i nomi sì) e
+    `handle → path` via `AssetManager.TryGetModelPath` (che **mancava**: la cache era solo
+    `path → handle`)
+  - [x] Writer opzionale nel registry: per quasi tutti i componenti "serializza i campi con
+    `SceneJson.Options`" è già l'inverso corretto del parse (i converter math implementano
+    `Write`). Va scritto a mano solo dove la lettura è **asimmetrica**: `Parent` (nome →
+    Entity) e `MeshRenderer` (path → handle)
+  - [x] Il campo `Model` (handle) **non** viene scritto, al suo posto va `ModelPath`:
+    scriverlo sarebbe peggio che inutile — al reload verrebbe riletto come handle valido e
+    punterebbe a un modello a caso
+  - [x] I componenti `[RuntimeState]` non finiscono nel file (verificato: `PhysicsBody`
+    assente dal salvato anche salvando a fisica già avviata). Stesso attributo della
+    duplicazione: la regola "non è dato d'autore" ora ha **un solo posto** dove vive
+  - ⚠️ **Trovato salvando**: il primo Save cancellava tutti i `_comment` con cui le scene si
+    documentano — da quando l'editor scrive, ciò che il formato non legge lo **distrugge**.
+    Risolto con `[JsonExtensionData]` su `Scene`/`EntityDefinition` + fusione per nome con
+    la scena d'origine in `SceneSerializer.ToScene(source:)`. Limite: un'entità rinominata o
+    creata nell'editor non ha un originale da cui pescare il commento
+  - ⚠️ Salvataggio **atomico** (file temporaneo + move): un Save interrotto a metà
+    troncherebbe la scena, cioè distruggerebbe il lavoro che stava salvando
+  - [x] `World.Clear` per il Load. Il contatore degli id **non** si azzera (come in
+    `DestroyEntity`): una selezione rimasta in mano all'editor dopo un reload resta
+    invalida invece di puntare a un'entità nuova e sbagliata
+- [x] **Play/Stop** — *deciso: Stop **ripristina** lo stato pre-Play, come Unity*.
+  **Fatto in Fase 4.7bis**, dove sta tutto il razionale
+  - [x] Stato `Editing / Playing / Paused`. Fuori da Play i system **non girano**: la
+    fisica dev'essere ferma, non solo invisibile
+  - [x] Snapshot all'ingresso in Play, ripristino allo Stop. **È il motivo per cui la
+    Persistenza viene prima**: lo snapshot *è* la serializzazione — `SceneSerializer` in
+    memoria invece che su file. Non è un punto separato della lista, è lo stesso lavoro
+    - Prova che serve: salvando dopo appena 5 frame di simulazione, il file si era già
+      portato dietro i cubi caduti (`y: 10` → `y: 8.08`). Senza snapshot, giocare e salvare
+      cementa la scena a metà caduta
+  - [x] I system oggi li possiede e li cicla a mano `SandboxGame` (quattro liste + quattro
+    overload di `AddSystem`): è logica dell'engine che vive nel sample, e finché sta lì
+    ogni gioco deve reimplementare da sé il gating del Play. Va portata nell'engine prima
+    di appenderci sopra il Play/Stop — fatto in Fase 4.5 (`SystemRegistry`), ed è servito
+    esattamente a questo
+
+**Milestone raggiunta:** aggiungi entità, modifichi transform e componenti e salvi,
+**senza toccare codice**. 🏆
+*(crei/duplichi/elimini entità, ne modifichi i componenti dall'Inspector, premi Salva e il
+`.json` sul disco cambia — poi Ricarica e la scena torna dal file.)*
+
+**Milestone raggiunta:** l'editor **ha la forma di un editor**. 🏆
+*(due viste render-to-texture affiancate — Scena navigabile col free-fly e Gioco con
+l'inquadratura del giocatore, ognuna con la sua camera — clicchi nel viewport e selezioni
+l'entità, e la trascini con le maniglie move/rotate/scale. F1 chiude tutto e resta il gioco
+a tutto schermo.)*
+
+**Della Fase 4 non resta niente:** il buco "aggiungere un componente dall'UI" è chiuso in
+Fase 4.7, il **Play/Stop con snapshot** in Fase 4.7bis. 🎉
+
+---
+
+## Fase 4.5 — Rigore ECS: Component vs Resource 🟢🟡
+
+Il punto di partenza era la richiesta "converti tutti i manager (Camera, Audio, Input,
+Renderer) in Component, e **tutto ciò che non sta nel World non deve esistere**". La regola
+è stata **respinta nella forma assoluta** e riscritta, perché il purismo si rompe su un caso
+concreto che questo progetto ha già in casa:
+
+> `SceneSerializer` scorre `World.ComponentStorages` e scrive ciò che trova. Un
+> `RendererComponent` finirebbe dentro `demo.json`. L'unico modo per evitarlo sarebbe
+> marcarlo `[RuntimeState]` — cioè **ammettere che non è dato d'autore**, che è esattamente
+> il punto.
+
+La regola adottata è lo split di Bevy (`Component` / `Resource`), più preciso e *davvero*
+imponibile:
+
+> **I dati di scena vivono nel World come Component. L'infrastruttura è una Resource
+> registrata esplicitamente.** Niente dati di scena fuori dal World; niente singleton sparsi.
+
+- [x] **`Resources`** (`src/gEngine/Core/Resources.cs`) — contenitore type-safe
+  (`Add<T>`/`Get<T>`/`TryGet<T>`/`Has<T>`/`RegisteredTypes`), fail-fast come `World.GetComponent`
+  - Sta in `Core/` e **non** in `Ecs/Base/`: quella cartella è casa del World, e metterci un
+    contenitore che per definizione vive *fuori* dal World direbbe l'opposto della regola
+  - ⚠️ La chiave è `typeof(T)`, **non** `resource.GetType()`: `Add<IPhysicsWorld>(new BepuPhysicsWorld(...))`
+    si rilegge dalla **porta**, non dall'adapter. Con l'inferenza si registrerebbe sotto
+    `BepuPhysicsWorld` e nessuna lettura per porta lo troverebbe mai
+  - ⚠️ Stesso morso in `GameLoop`: i campi sono nullable (esistono solo dopo `InitWindow`),
+    quindi l'inferenza registrerebbe sotto `IRenderer?`/`AssetManager?`. Tipi espliciti
+- [x] **`IGame.Init(Resources)`** — il contratto cambia: il `GameLoop` popola le Resources
+  (`InputHandler`, `AssetManager`, `IRenderer`) **dopo `InitWindow`** e prima di `Init`
+  - Il motivo non è estetico: `IRenderer` era **l'unica Resource fuori posto**, registrata
+    pigramente al primo frame di `Draw` con un `if (!Has<IRenderer>())`, perché `Init` non lo
+    riceveva. Una regola che nasce con un'eccezione strutturale non è una regola
+  - `Update(float, InputHandler)`/`Draw(IRenderer)` restano **invariati** di proposito: quei
+    servizi sono richiesti *sempre*, e un parametro esplicito lo dichiara nel tipo — pescarli
+    da `Get<T>()` fallirebbe a runtime invece che a compile time. La Resource resta il punto
+    di verità (stessa istanza), il parametro è comodità. `Init` è il caso opposto: lì la
+    firma cresceva a ogni servizio nuovo, ed è ciò che il contenitore risolve
+  - `IPhysicsWorld` lo crea e lo registra il **gioco**: le Resources sono un contenitore
+    condiviso, non impongono chi crea cosa
+- [x] **`SystemRegistry`** (`src/gEngine/Ecs/`) — la proprietà dei system passa all'engine
+  - Chiude il buco già annotato in Fase 4 (Play/Stop): `SandboxGame` teneva **quattro liste**
+    e quattro overload di `AddSystem`, cioè logica dell'engine che viveva nel sample — e
+    finché stava lì, ogni gioco avrebbe dovuto reimplementarsi il gating del Play
+  - Un solo `Add(ISystem)` che smista sulle interfacce implementate (`SystemPhase` è `[Flags]`:
+    un system può stare in più fasi)
+  - **`SystemRegistry` e non `SystemScheduler`**: non ordina niente. Dentro una fase vale
+    l'ordine di registrazione, e chi chiama deve ancora sapere che `LightingSystem` va prima
+    di `MeshRenderSystem`. "Scheduler" prometterebbe una risoluzione di dipendenze inesistente
+- [x] **`Camera3D` → dati di scena** — `CameraComponent` (solo ottica: `FovY`/`Near`/`Far`/
+  `Projection`/`Primary`) + la **posa dal `TransformComponent`**, modello Unity
+  - ⚠️ **Asimmetria voluta**: la camera di **gioco** è un'entità del World (dato d'autore:
+    serializzata, selezionabile, col gizmo); la camera di **scena** dell'editor resta fuori
+    dal World. Non è un'incoerenza, è la regola applicata: la scene camera è stato
+    dell'editor — nel World verrebbe serializzata in `demo.json` e comparirebbe in Hierarchy
+  - `Camera3D` **resta** come camera "risolta"/matematica (la usano `EntityPicker`,
+    `TransformGizmo`, il frustum, `Begin3D`): quella matematica è verificata numericamente e
+    non si riscrive. Si **deriva** con `World.GetCamera(Entity)` — e non un
+    `CameraComponent.Resolve(transform)`, perché la posa dipende dal World (col `ParentComponent`
+    il Transform è locale) e quella firma inviterebbe a passare il transform sbagliato
+  - ⚠️ **Il trucco del riferimento `class` non funziona più.** `EditorHost.Setup` prendeva una
+    `Camera3D` e il riferimento restava agganciato a ciò che il gioco le faceva ogni frame.
+    Ora la camera si **ricava** dal World: va letta **per frame** (`Func<Camera3D?>`)
+  - ⚠️ «Esiste sempre una camera» **non è un invariante** — stessa lezione del player
+    cancellabile (Fase 4): senza `CameraComponent` nel World si degrada, non si crasha
+  - Verifica numerica sulla posa storica `(0,18,28)→(0,6,0)` di `demo.json`: pos err **0**,
+    dir err **4.8e-7** (arrotondamento del quaternione a 6 cifre nel file), view matrix err
+    **1.6e-5**. Round-trip World→file→World: **0 esatto**
+    - ⚠️ Sottigliezza che un confronto Position/Target avrebbe **nascosto**: l'`Up` derivato
+      *non* è `(0,1,0)` ma l'up inclinato complanare a forward/worldUp. Non è un errore —
+      `CreateLookAt` riortogonalizza, e infatti la view matrix combacia. Ma il campo grezzo
+      differisce: confrontare i campi d'ingresso non è confrontare la camera
+  - [x] ~~`CameraFollowSystem` scrive la posa come se la camera fosse **root**~~ — **risolto**
+    con `World.SetWorldPose` (vedi Fase 1: l'inverso di `GetWorldMatrix`). `Position` vive
+    nello spazio del **genitore**: finché la camera era root funzionava per coincidenza
+    - ⚠️ **La frase "il gizmo ha lo stesso limite dal lato opposto" era FALSA**, ed era un
+      commento nel codice ripetuto per fiducia invece che verificato. `TransformGizmo.ToParentSpace`
+      divide **già** per il mondo del genitore, con `TransformNormal` (giusto: il drag è un
+      **delta**, non un punto) e con l'`Invert` fallibile già gestito. Non fattorizzato sulla
+      nuova API apposta: `ToParentSpace` lavora su un delta direzionale, `SetWorldPose` su una
+      posa assoluta — sono due conti diversi che si somigliano
+    - [x] Bonus trovato di sponda: `CameraFollowSystem` leggeva la posizione del player da
+      `Position` **grezza** (locale). Ora usa `GetWorldMatrix(...).Translation` — "il player è
+      root" non era un invariante più di quanto lo fosse "la camera è root"
+  - [ ] *(limite noto)* Più camere `Primary`: vince la prima incontrata. Documentato, non imposto
+- [x] **Traceability**: ogni `ISystem` dichiara `MatchedComponents` (default interface member,
+  default vuoto → non rompe i system esterni). Dichiarativo e non `Matches(World, Entity)`:
+  risponde **senza far girare i system**, e documenta di cosa parla il system
+  - ⚠️ **`SystemMatch { Unknown, Matching, NotMatching }`**: "non dichiara nulla" resta
+    distinguibile da "no". Appiattire a un booleano farebbe **mentire** l'UI
+  - [x] **Due verbi, non uno**: `MatchedComponents` (agisce su) + `ObservedComponents`
+    (**guarda ma non tocca**, opzionale, default vuoto). Nasce da un caso vivo: il `player`
+    non mostrava `CameraFollowSystem`, perché quel system *legge* il player e *agisce* sulla
+    camera — e chi si chiede "perché la camera non mi segue?" guarda il player
+    - Il nome è `Observed` e non `Read` perché "legge" non distingue niente: un system legge
+      **anche** i componenti che matcha (il `TransformComponent` che poi riscrive)
+    - Dichiarato **una volta sola** in tutto il progetto, e solo dove è reale: gli altri 6
+      system non leggono entità che non toccano (`LightingSystem`/`MeshRenderSystem` ricevono
+      la camera come **parametro** di `OnRender`, non da una query — non è lettura di
+      un'entità). Una dichiarazione inventata sarebbe peggio di nessuna
+  - ⚠️ **Resta un'approssimazione, e i due verbi NON la curano**: è **metadata scritta a mano**,
+    che può mentire e andare fuori sincrono col codice. `ObservedComponents` è anzi *meno*
+    affidabile, perché essendo opzionale una "sezione vuota" non prova che nessuno legga
+    l'entità. La cura vera sarebbe **derivare i match dalle query reali** dei system; finché
+    non c'è, l'elenco è un aiuto diagnostico, **non una prova** — e l'UI lo dice
+  - [x] ⚠️ **Il ramo `Unknown` non era mai stato renderizzato** e infatti **conteneva un bug**:
+    l'intestazione usciva `Non si sa (?) (?)` — l'etichetta aveva già un `(?)` letterale e
+    `HelpMarker` gliene aggiungeva un altro. Tutti i system del sample dichiarano i propri
+    componenti, quindi quella sezione non si disegna mai: la logica era verificata sul dato,
+    il **disegno** no. Esercitato con un system fittizio senza dichiarazioni + screenshot
+    (`Raylib.TakeScreenshot`) **guardato davvero**, poi corretto e ri-fotografato. È la lezione
+    generale: un ramo che nessun percorso reale attraversa non è "probabilmente a posto"
+- **Audio**: nella richiesta iniziale era fra i manager "da convertire", ma **non esiste
+  codice audio da convertire** — c'è solo `AssetManager.PlayMusic`. Quando arriverà (Fase 6),
+  la regola lo assegna già: `AudioSource`/`AudioListener` sono Component (hanno una posa,
+  sono dati di scena), il device audio è una Resource
+
+**Milestone:** la regola è **imponibile invece che aspirazionale** — un dato di scena senza
+entità non ha dove stare, e l'infrastruttura ha un posto dichiarato invece di essere un campo
+sparso in un sample. 🏆
+
+---
+
+## Fase 4.6 — Lo scheletro della UI: menu bar e pannelli 🟡
+
+L'editor aveva la *forma* di un editor (due viste, gizmi, picking) ma non la sua **struttura**:
+niente barra dei menu, pannelli non richiudibili, azioni sparse su bottoni dentro finestre
+provvisorie. Questa fase fa lo scheletro su cui si innestano context menu, pannelli globali e
+asset browser — non le funzioni, l'ossatura.
+
+- [x] **`IEditorPanel` ha identità e visibilità**: `Title` + `Visible`
+  - Il `Title` è **l'unica fonte di verità**: stesso valore per `ImGui.Begin` e per la voce del
+    menu Panels. ⚠️ Non è pedanteria — ImGui identifica le finestre **per titolo**, e due
+    `Begin` con lo stesso nome sono lo stesso pannello riempito due volte, senza un warning
+    (è già successo: vedi la nota su `Begin("Scena")` in Fase 4)
+  - `ImGui.Begin(title, ref visible)`: la **X** della finestra e la **spunta** del menu devono
+    scrivere lo **stesso** flag. Due stati paralleli divergono al primo clic
+- [x] **`PanelBase`** — il preambolo (`SetNextWindowPos/Size` + `Begin` + il ramo "collassato →
+  `End` e torna") era già copiato identico in ogni pannello: aggiungere `Visible` a mano avrebbe
+  voluto dire quattro copie del punto più delicato. `Visible` sta **nell'interfaccia** (l'host
+  li usa in modo polimorfico: il menu Panels elenca pannelli senza sapere cosa siano),
+  l'implementazione in **una** classe base
+  - Due hook per non stravolgere il `ViewportPanel`, che ha esigenze reali: `WindowFlags`/
+    `WindowPadding` (i suoi `NoScrollbar` restano) e `OnNotDrawn()` — un viewport **chiuso**
+    deve smettere di riempire il render target, non solo di mostrarlo
+- [x] **Top Menu Bar** (`MainMenuBar.cs`, fuori da `EditorHost`: l'host orchestra, non fa UI)
+  - **File**: New / Open… / Save. **Panels**: elenco spuntabile di tutti i pannelli, da cui si
+    riaprono quelli chiusi
+  - ⚠️ **Ordine con il dockspace**: la barra va disegnata **prima** di `DockSpaceOverViewport`.
+    `BeginMainMenuBar` sottrae la propria altezza alla work area del viewport, ed è su quella
+    che il dockspace si dispone — invertendo, i pannelli dockati in alto finiscono **sotto** la
+    barra
+  - **Open** è un popup ImGui che elenca i `.json` della cartella scene, **non** un file dialog
+    di sistema e nessuna libreria in più: ImGui non ha un file dialog, e tirarne dentro uno per
+    aprire una scena sarebbe una dipendenza per un menu
+  - Il try/catch di `ScenePanel` (salvare tocca il disco: un'eccezione nel frame di disegno
+    butta giù il gioco, l'errore va **mostrato**, è lì che l'utente rimedia) è stato **portato**,
+    non riscritto. La barra dei menu è già una status bar: gli errori si vedono lì
+- [x] **Pannello "File scena" eliminato**: era provvisorio, le sue azioni sono nel menu File
+- [x] **Layout di default a 5 pannelli**: Scena, Gioco, Inspector, File system, Hierarchy
+  - ⚠️ Il layout salvato in `imgui.ini` (working directory, gitignorato) **vince** sui default
+    `FirstUseEver`: per provare davvero il primo avvio va cancellato
+- [~] **`FileSystemPanel`** — stub navigabile (elenca `assets`, doppio clic per entrare, `..`,
+  radice difesa). Il **drag&drop** è arrivato in Fase 4.7; le mutazioni su disco no. Deduce
+  `assets` da `AppContext.BaseDirectory` (stessa convenzione di `SandboxGame.Init`) invece di
+  aggiungere un parametro a `Setup`; se un gioco tiene gli asset altrove il pannello **lo
+  dice** invece di fingere
+- [ ] *(limite noto)* **`New Scene` lascia il documento senza percorso** e non esiste un
+  "Save As": `SceneDocument.Save` lancia con un messaggio esplicito invece di scrivere a caso.
+  La guardia sta nel document e non nel menu, così il chiamante non deve ricordarsene
+- [ ] *(buco di verifica)* Popup Open, New e Save sono verificati **per costruzione**, non a
+  mano. Il resto della barra è stato guardato in uno screenshot. ⚠️ "Non c'era modo di
+  cliccarli" **non è più vero**: la Fase 4.7 pilota la finestra viva con `PostMessage` da
+  PowerShell — questi tre non sono ancora passati di lì, ma ora si può
+
+**Milestone:** l'editor ha una **struttura** invece di una collezione di finestre — c'è una
+barra dei menu, i pannelli si chiudono e si riaprono, e il layout d'avvio è quello giusto. 🎉
+
+---
+
+## Fase 4.7 — L'editor si usa: context menu, inventari, asset 🟢
+
+Lo scheletro della 4.6 ora ha i muscoli. Tre cose che l'editor prometteva e non faceva:
+manipolare un'entità dove la si guarda, sapere di cosa è fatto il gioco, e mettere un asset
+in un campo.
+
+### La decisione: da dove nasce un componente
+
+Il buco annotato dalla Fase 4 (**aggiungere un componente da UI**) non era un lavoro
+rimandato, era una **domanda senza risposta**: l'engine non conosce l'elenco dei tipi
+istanziabili, e senza un valore di partenza "aggiungi" non significa niente.
+
+- **Scartato: `Activator.CreateInstance` / `default(T)`.** I componenti sono struct di dati
+  nudi, quindi "creane uno" senza dire come dà **tutti i campi a zero** — che non è un default
+  neutro, è un default **rotto**, in modo diverso per ogni tipo: `Transform` con `Scale = 0` è
+  invisibile e la sua rotazione non è nemmeno un quaternione valido `(0,0,0,0)`; `Camera` con
+  `FovY = Near = Far = 0` non inquadra niente; `Light` con `Intensity = 0` non illumina;
+  `MeshRenderer` nasce `Visible = false`. L'utente avrebbe visto "componente aggiunto" e
+  **nessun effetto**: il bug più caro da cercare è quello che assomiglia a un no-op.
+- **Scartato: scandire gli assembly** per trovare i tipi. Offrirebbe di aggiungere anche i
+  tipi di una libreria di terze parti.
+- **Preso: il default lo dichiara chi registra il componente**, dentro il
+  `SceneComponentRegistry` — la strada già ipotizzata in Fase 4. È lo stesso principio di
+  `[EditorConfiguration]`: l'editor manipola dati che non conosce, e ha bisogno che sia **il
+  tipo** a dirglielo. Un componente custom diventa aggiungibile registrandolo una volta sola
+  (vedi `SandboxGame.Init`: `createDefault:` accanto a parse e write).
+  - Sta nel registry delle **scene** e non in un secondo registry perché la domanda è la
+    stessa che quello risponde già: *di quali componenti è fatto questo gioco e come si
+    chiamano*. Un secondo elenco = un secondo posto in cui dimenticarsi il componente nuovo
+  - `createDefault` è **opzionale**, e chi non ce l'ha **resta nell'elenco ma spento, col
+    motivo**: sparire manderebbe a cercare la registrazione mancante nel posto sbagliato.
+    ⚠️ Per `Parent` è **voluto e definitivo**: un genitore di default non esiste (`Entity(0)`
+    non è un'entità), ci si riparenta dalla Hierarchy
+  - I default dell'engine sono scelti perché **si vedano**: Transform neutro, Light bianca a
+    intensità 1 e *Directional* (una point nell'origine sarebbe dentro il pavimento),
+    RigidBody dinamico massa 1, MeshRenderer cubo bianco visibile, Camera 60°/0.01/1000 e
+    `Primary = false` (non ruba l'inquadratura a quella che sta già guardando)
+- `World.AddComponent(Entity, object)` — la controparte **non generica**, gemella di
+  `HasComponent(Entity, Type)` e mossa dallo stesso bisogno: il tipo esce da un elenco, non
+  c'è nessun `T` da scrivere. Chiude `ComponentStorage<>` a runtime una volta per tipo
+
+### Fatto
+
+- [x] **Context menu al posto dei bottoni** (Task 3). Via la toolbar Nuova/Duplica/Elimina
+  della Hierarchy e la `X` sull'header dei componenti — chiedevano di selezionare prima e
+  cliccare poi, e la `X` era piazzata con un `SameLine` su una coordinata calcolata a mano
+  - Destro su un'entità → Crea entità figlia / Duplica / Elimina; destro nel vuoto → Crea
+    entità; destro su un header dell'Inspector → Rimuovi componente
+  - Il bersaglio del comando è **la riga cliccata**, non la selezione: sono due cose che
+    possono divergere. Che il destro selezioni anche è un servizio all'Inspector
+  - ⚠️ `ImGuiPopupFlags.NoOpenOverItems` sul popup della finestra: senza, il destro su una
+    riga apre **anche** quello — due id diversi, quindi ImGui non segnala niente e si vede il
+    menu sbagliato esattamente dove ci si aspetta l'altro
+  - `EntityOperations.Create` — la creazione è **politica dell'editor** come Duplicate e
+    DestroyRecursive, quindi sta lì. ⚠️ Ci ha portato un bug vero: due entità create di
+    seguito si chiamavano entrambe "Nuova entità", e due omonime **collassano** nella mappa
+    nome→Entity di `SceneInstantiator` al reload (vince l'ultima, senza un errore). Ora il
+    nome è reso libero, come già faceva `Duplicate`
+- [x] **Pannelli globali `Systems` e `Components`** (Task 4), spenti all'avvio e accesi dal
+  menu Panels: sono diagnostici, non roba da tenere addosso
+  - **Systems**: elenca **per fase e nell'ordine reale di esecuzione**, perché dentro una fase
+    l'ordine *è* comportamento (⚠️ `LightingSystem` prima di `MeshRenderSystem`) ed è ciò che
+    un elenco mostra e il codice no. Un system in due fasi compare **due volte**: gira due
+    volte. Tooltip con `MatchedComponents`/`ObservedComponents`, destro → Rimuovi
+  - **Rimossi in questa sessione** + Ripristina: l'editor non sa *costruire* un system (ha
+    dipendenze — `PlayerInputSystem` vuole un `InputHandler`), quindi senza la lista togliere
+    un system sarebbe irreversibile fino al riavvio. ⚠️ Ripristina rimette il system **in
+    fondo** alla sua fase, non dov'era, e richiama `OnCreate` sulla stessa istanza (oggi tutti
+    vuoti, quindi non si vede)
+  - [ ] *(limite dichiarato)* **Aggiungi system non c'è**, e il bottone è spento **col motivo
+    nel tooltip** invece che assente: servirebbe che il gioco dichiarasse le factory dei suoi
+    system, ed è l'unico posto dove le dipendenze si sanno
+  - **Components**: i tipi registrati con quante entità li usano e se sono aggiungibili. La
+    sezione che giustifica il pannello è la terza — **"nel World ma non registrati"**: un tipo
+    lì dentro rende la scena **non salvabile** (`SceneSerializer` lancia), e prima lo si
+    scopriva premendo Salva. `NameComponent` e i `[RuntimeState]` sono elencati **con la loro
+    ragione accanto**, non come allarmi
+- [x] **Drag&drop tipizzato** (Task 6): un asset dal File system a uno slot dell'Inspector
+  - La **validazione è il payload stesso**, non un controllo dopo il drop: ImGui accoppia
+    sorgente e bersaglio confrontando la stringa che identifica il payload, quindi un `.mp3`
+    sopra lo slot Model non si illumina nemmeno. È la differenza fra validare e rendere
+    irrappresentabile. ⚠️ ImGui tiene quel nome in un `char[32+1]` e **asserisce** se è più
+    lungo — da qui il prefisso corto
+  - `[EditorAsset(AssetKind.Model)]` — il **terzo attributo** della famiglia
+    (`[RuntimeState]` esclude un componente, `[EditorConfiguration]` espone un valore, questo
+    espone uno **slot**). Nell'engine, non nell'editor: un componente si descrive senza
+    referenziare l'editor. `MeshRenderer.Model` era **volutamente non esposto** in attesa di
+    questo: il dato d'autore è il *path*, l'handle è un id di cache che al reload punta a un
+    modello a caso
+  - Il payload porta il **path relativo alla cartella asset** (non l'handle: a quel punto il
+    modello non è caricato, e sfogliare una cartella non deve caricarne il contenuto).
+    ⚠️ Regge perché le due radici coincidono — il pannello deduce `assets` con la stessa
+    convenzione dell'`AssetManager`
+  - `AllowUnsafeBlocks` acceso in `gEngine.Editor`: `AcceptDragDropPayload` torna un wrapper
+    su un `ImGuiPayload*` che è **null** quando non è stato rilasciato niente, e quel
+    confronto in C# vuole `unsafe`. Un blocco solo, in `AssetDragDrop.TryRead`
+  - ⚠️ **Limite dichiarato**: lo slot non conosce gli altri campi del componente. Assegnare un
+    modello a un `MeshRenderer` con `Kind = Cube` riempie il campo e **non cambia cosa si
+    vede**. L'editor lo dice **nel tooltip dello slot** invece di aggiustare `Kind` da sé —
+    un'UI generica che indovina i campi correlati indovina anche quando non deve, e la strada
+    "setter con logica" cambierebbe il comportamento del **caricamento** (un file con
+    `Kind = Cube` e un `ModelPath` verrebbe sovrascritto)
+
+### Il buco di verifica della 4.6 è chiuso
+
+I popup non erano mai stati **cliccati** ("non c'era modo di automatizzare l'input"). Ora c'è:
+si pilota la finestra viva con `PostMessage` (WM_MOUSEMOVE / WM_?BUTTONDOWN / UP) da
+PowerShell, mentre il gioco si fa gli screenshot da solo a frame prestabiliti. Verificati **a
+video**: i quattro menu contestuali, la popup Aggiungi componente (che offre Camera/Light/
+RigidBody, esclude quelli già addosso e mostra Parent spento), e il drag&drop completo — uno
+slot passato da "(nessun modello)" al path, col valore che resta dopo il rilascio.
+
+⚠️ Limiti del rig, non del codice: il **doppio clic** sintetico non si riesce a riprodurre
+(rlImGui campiona lo stato del mouse **a livello, una volta per frame**, e i tempi non tornano),
+e un trascinamento che parte da un punto vuoto **sposta la finestra ImGui** invece dell'item.
+
+### Trappole pagate in questa sessione
+
+- ⚠️⚠️ **`BeginPopupContextItem()` dopo un `Text` fa `IM_ASSERT`**: senza id usa quello
+  dell'ultimo item, e **un `Text` non ha id** (trova 0). Su Windows quell'assert è una
+  **dialog modale nativa**: il gioco non crasha e non logga — si **pianta al primo frame**,
+  aspettando un clic su una finestra che nessuno ha chiesto. Sembrava un hang del game loop.
+  La cura è un `Selectable` (che ha un id, e per giunta si illumina al passaggio). Era in
+  **due** pannelli
+- ⚠️ **Le stringhe che passano a ImGui possono usare solo Latin-1** (`0x20–0xFF`): è la
+  copertura del font di default (`GetGlyphRangesDefault`), tutto il resto esce come `?`. Non è
+  "niente emoji" — quella era la formulazione stretta, e infatti ha lasciato passare il
+  problema vero: la **lineetta lunga `—`** (U+2014), che si scrive senza pensarci ed era già
+  in un tooltip della Fase 4. Il `·` (U+00B7) invece va bene: è dentro Latin-1. Nei
+  **commenti** il `⚠️` resta (quelli non li legge ImGui); nelle stringhe: "Attenzione:", "-",
+  "(!)". Il modo di trovarli tutti è scandire i sorgenti per i caratteri `> 0xFF` nelle righe
+  non di commento — non rileggerli sperando di accorgersene
+- ⚠️ Un bottone a **larghezza piena** (`-1`) seguito da `SameLine` spinge l'etichetta **fuori
+  dal pannello**. Lo slot degli asset è nato **senza nome** così. Per allinearsi agli altri
+  campi si usa `ImGui.CalcItemWidth()`, che è la larghezza che lasciano i `DragFloat`
+- ⚠️ L'id della **fase** deve avvolgere quelli delle righe nel pannello Systems: ImGui non
+  guarda in che `SeparatorText` stai, guarda lo stack degli id — la riga 0 di Input e la riga
+  0 di Simulation sarebbero lo **stesso** item
+
+**Milestone:** l'editor non si guarda più, si **usa**: si crea e si manipola dove si guarda,
+si vede di cosa è fatto il gioco, e un modello si mette in una scena trascinandolo. 🎉
+
+---
+
+## Fase 4.7bis — Play / Stop: la Fase 4 è chiusa 🟢
+
+L'ultimo pezzo, e arrivato buon ultimo perché **dipendeva da tutto il resto**. Play/Stop è
+fatto di due metà, e nessuna delle due è nuova:
+
+1. **Il gating** — "non far girare i system quando non si sta giocando". Serviva un posto solo
+   dove i system vivono: il `SystemRegistry`, nato apposta in Fase 4.5. Il gating **non** sta
+   nel registry né nell'editor: sta nel **gioco**, che è l'unico a chiamare le fasi. L'engine
+   non sa che esiste un editor, l'editor non sa quali fasi il gioco faccia girare. L'editor
+   espone solo la verità su cui si decide (`EditorHost.ShouldSimulate`).
+2. **Lo snapshot** — "rimetti tutto com'era". Non è una funzione nuova: **è la
+   serializzazione, in memoria invece che su file**. Giocare e poi fermarsi è un
+   Salva-senza-file seguito da un Apri-senza-file. È il motivo per cui il salvataggio inverso
+   (Fase 3) valeva la pena anche prima che qualcuno volesse premere Salva.
+
+### Le scelte
+
+- **Lo snapshot si prende PRIMA di partire, e se fallisce non si parte.** È la scelta che
+  rende la cosa sicura: una scena non serializzabile (un componente senza writer, un genitore
+  senza nome) romperebbe lo Stop, cioè si scoprirebbe di non poter tornare indietro *dopo*
+  aver giocato. Fallendo al Play si perde un clic; fallendo allo Stop si perde il lavoro.
+  L'errore passa dallo stesso `MainMenuBar.Run` del salvataggio — è lo stesso errore. Il
+  pannello Components (Fase 4.7) lo dice ancora prima, a riposo
+- **Render non è gated**: in Editing la scena si deve **vedere**, ferma. Solo
+  Input/Simulation/Late si fermano
+- **Il free-fly della camera di scena non è gated**: navigare è dell'editor, non del gioco —
+  ed è in Editing che serve di più
+- **La selezione si ritrova per nome**, non per `Entity`: ⚠️ lo Stop distrugge e ricrea, quindi
+  **gli id cambiano** (verificato: `Entity 4` → `Entity 17`, stessa entità). Il nome è l'unica
+  identità che sopravvive al giro — è già così che i riferimenti attraversano il file. Un'entità
+  senza nome non si ritrova: è lo stesso limite del formato, non uno in più
+- **`[RuntimeState]` non torna indietro, ed è giusto**: il corpo Bepu dello snapshot punterebbe
+  a un corpo che non c'è più. Lo ricrea il `PhysicsSystem` al primo update. ⚠️ Ma in Editing
+  quel system non gira, quindi la pulizia degli orfani arriva al Play successivo
+- **Pausa** c'è perché una volta che lo stato esiste costa tre righe, e "congela e guarda" è
+  metà del motivo per cui si preme Play in un editor
+- [x] **F1 entra in Play** *(deciso dal proprietario, fra tre alternative)*. `ShouldSimulate`
+  resta `!Visible || Playing`, ma il `!Visible` ora è una **rete**, non la regola:
+  `EditorHost.SetVisible` prende lo snapshot ed entra in Playing quando si chiude l'editor.
+  - **Il problema che chiude**: prima si usciva con F1 restando in Editing, il gioco girava
+    **senza snapshot**, e rientrando si trovava la scena mossa e nessuno Stop da premere. Chi
+    preme F1 sta chiedendo di giocare, e chi gioca deve poter tornare indietro
+  - **Le altre due strade, scartate**: lasciare com'era (buco aperto); far rispettare a F1 lo
+    stato, cioè mostrare la scena **congelata** a schermo intero — più puro, ma sembra un gioco
+    rotto e rompe l'invariante *editor chiuso = il gioco vero*
+  - ⚠️ Il prezzo, dichiarato: **F1 fa due cose** (nasconde l'UI e fa partire il gioco) e si
+    rientra in uno stato che non si era chiesto. Lo **Stop acceso** nella barra è ciò che lo
+    ricorda
+  - ⚠️ **Non è simmetrico**: rientrare non ferma. Fosse un'anteprima usa-e-getta si giocherebbe,
+    succederebbe qualcosa di interessante, si rientrerebbe per guardarlo — e non ci sarebbe più
+  - ⚠️ Il `!Visible` resta per quando il Play **non parte** (registry non dichiarato, scena non
+    serializzabile): lì si gioca senza snapshot. Sembra il buco di prima e non lo è — un gioco
+    che non sa serializzare la propria scena non aveva niente da ripristinare, né qui né con un
+    Salva
+  - `Visible` è diventata `private set`: nasconderlo ha una conseguenza, quindi non può essere
+    un assegnamento. E `PlayMode.Start` non lancia più (torna `bool` + `LastError`): lo chiamano
+    due posti, e F1 non saprebbe dove mostrare un'eccezione
+  - ⚠️ **Verificato solo a metà**: si vede l'uscita e la simulazione che parte, ma il rig non
+    riesce a pilotare F1 in **rientro** (i tasti sintetici non passano come i clic). Lo Stop
+    acceso al rientro è verificato **per costruzione** — primo controllo da fare a mano
+
+### Verificato a video (non per costruzione)
+
+Col rig della Fase 4.7, guardando `falling-cube-red` (autorato a `y = 10`, cade a `y ≈ 0.5`):
+
+| stato | Position.Y | cosa dimostra |
+|---|---|---|
+| Editing | `10.000` | i system stanno fermi: il gating funziona |
+| Play | `0.727` | il gioco gira davvero |
+| Stop | `10.000` | lo snapshot ha rimesso tutto com'era |
+
+Allo Stop l'entità è tornata selezionata pur essendo diventata `Entity 17`, e `PhysicsBody` è
+sparito dall'Inspector — esattamente ciò che il design prevede.
+
+### Il tema (`EditorTheme`)
+
+Prima c'era il dark di default di rlImGui, cioè il tema di ImGui — quello che ha **qualunque
+cosa** costruita con ImGui, incluse le finestre di debug buttate lì in un pomeriggio. Non è
+brutto: è **anonimo**, e un editor che assomiglia a un pannello di debug viene usato come un
+pannello di debug. Le regole, che contano più dei numeri:
+
+- **Una sola scala di grigi** neutra, con i piani separati dalla **luminosità** e non dai bordi:
+  la finestra è più scura dei suoi campi, che sono più scuri di quelli sotto il puntatore. Così
+  "cosa è cliccabile" si legge senza cercare un contorno. Un bordo per riquadro, in un editor
+  pieno di riquadri, è una griglia che non aiuta a leggere niente
+- **Un solo accento**, desaturato, speso solo dove significa: selezione, spunte, maniglie. Il
+  blu di ImGui è saturo e finisce ovunque — con dodici pannelli aperti diventa rumore. I bottoni
+  partono dal grigio dei campi: un bottone blu ogni tre righe trasforma l'Inspector in un
+  semaforo
+- **La barra del titolo è più scura della finestra**, non più chiara: il pannello attivo si
+  distingue per il testo e il bordo, non per una fascia luminosa che tira l'occhio su ogni
+  finestra aperta
+- **Raggi piccoli e uguali** (4px, 2px per le maniglie): il default mescola angoli vivi e
+  arrotondati, e l'incoerenza si nota anche quando non si sa cosa si sta notando
+- ⚠️ **Due colori restano accesi e saturi apposta**: il bersaglio del drag&drop e il cursore di
+  navigazione. Sono gli unici che devono **interrompere** — uno slot che accetta un modello si
+  deve vedere *mentre* lo si trascina sopra, non dopo
+- [ ] ⚠️ **Il limite più grosso resta il font**: ProggyClean, il bitmap font di default, è ciò
+  che fa sembrare "prototipo" più di ogni colore. Cambiarlo vuol dire spedire un `.ttf` — peso,
+  licenza, e un path che non sia quello di Windows. È una decisione a sé, non un ritocco
+
+**Milestone:** la **Fase 4 è chiusa**. L'editor autora una scena, la fa girare, e la rimette
+com'era. 🎉
+
+---
+
+## Fase 4.9 — Script: si scrivono negli asset, il motore li trova 🟢🟡
+
+*Richiesta del proprietario: «devo poter scrivere script custom, e chi usa l'editor non tocca i
+file core dell'ECS». Deciso: si va verso i `.cs` sotto `assets/` compilati a runtime — ma
+quello è lo strato **sopra** questo.*
+
+Il problema non era la verbosità di `_systems.Add(new MovementSystem())`: era che **scrivere
+uno script significava modificare un file che non è lo script**. Due punti lontani (il
+`Game.Init` e il registry delle scene), e dimenticarne uno **non dà un errore di
+compilazione** — dà un system che non gira mai, o una scena che non si salva.
+
+- [x] **`[GameSystem(Order)]`** — la classe si dichiara e `ScriptDiscovery` la trova
+  - Le **dipendenze da costruttore** si risolvono dalle `Resources` per tipo
+    (`PlayerInputSystem` vuole un `InputHandler`). È **il** caso d'uso per cui le Resource
+    esistono: un contenitore dove è *dichiarato* di cosa vive il gioco. Ciò che non è lì dentro
+    non è iniettabile, e la scoperta lo dice col nome di quel che manca invece di costruire un
+    system mezzo rotto. Ha richiesto `Resources.TryGet(Type, out object)`, gemella non generica
+  - ⚠️ **`Order` esiste perché la riflessione non ha un ordine**: `GetTypes()` cambia
+    ricompilando, e dentro una fase l'ordine *è* comportamento. Senza, aggiungere uno script
+    potrebbe riordinarne altri due e non lo direbbe nessuno
+  - ⚠️ **Dove si chiama `RegisterSystems` conta**: l'`Order` ordina gli script *fra loro*, non
+    rispetto ai system che il gioco registra a mano. Resta una riga visibile in `Init` — è
+    l'unico punto in cui la decisione si prende, e nasconderla dentro la scoperta sarebbe
+    peggio che scriverla
+  - Si chiama `GameSystem` e non `System` per un motivo stupido e insormontabile: `[System]`
+    collide col namespace `System` e non compila
+- [x] **`[GameComponent(key?)]`** — chiave dedotta dal nome del tipo meno "Component" (la
+  stessa convenzione degli header dell'Inspector). Chiavi in conflitto → **fail-fast**: due
+  componenti sotto lo stesso nome vorrebbero dire caricare una scena istanziandone uno a caso
+  - Il default resta **dichiarato**, con un `public static T CreateDefault()` trovato per
+    convenzione: ⚠️ **niente `Activator.CreateInstance` come ripiego** — per uno struct di dati
+    nudi darebbe zeri, cioè il default rotto travestito da neutro contro cui è stata presa la
+    decisione della Fase 4.7. Chi non lo dichiara resta spento col motivo, come prima
+  - ⚠️ **Non sostituisce `RegisterEngineDefaults` e non deve**: i componenti dell'engine hanno
+    binder **asimmetrici** che un attributo non può esprimere (`MeshRenderer` converte un path
+    in handle, `Parent` un nome in `Entity`). L'attributo copre il caso normale, che è quello
+    di quasi tutti i componenti di un gioco
+- [x] **`PlayerComponent`/`VelocityComponent` fuori dall'engine** → `samples/Sandbox/Components/`.
+  Erano componenti del **gioco parcheggiati nel core** — nessun file dell'engine li ha mai
+  usati (solo un commento dell'Inspector li citava come esempio). È esattamente ciò che
+  l'attributo esiste per rendere inutile, e finché stavano lì la regola era smentita dal
+  sample che doveva dimostrarla
+- [x] **`ScriptDiscovery` prende un `Assembly` e non gli importa da dove venga** — è il perno:
+  quando arriverà la compilazione a runtime, le si passerà l'assembly prodotto e questi stessi
+  metodi funzioneranno. Costruire questo strato prima è ciò che rende l'altro un'aggiunta
+  invece che una riscrittura. `ReflectionTypeLoadException` è già gestita: con un assembly
+  compilato insieme al gioco non capita quasi mai, ma con gli script a runtime sarà il caso
+  **normale**
+- [x] **Compilazione a runtime dei `.cs` sotto `assets/scripts/`** — Roslyn
+  (`Microsoft.CodeAnalysis.CSharp`) in `gEngine.Editor`, **non** nel core: sono ~10MB che
+  servono solo mentre si sviluppa, e un gioco spedito non deve compilare i propri script (li ha
+  già compilati chi ha usato l'editor). Stessa regola di ImGui. Il core resta con gli attributi
+  e `ScriptDiscovery`, che è ciò che serve a un gioco spedito
+  - **La prova**: `MovementSystem`, `PlayerInputSystem` e `CameraFollowSystem` sono usciti dal
+    `.csproj` e vivono in `assets/scripts/`. Il gioco compila **senza di loro**, e il pannello
+    Systems a runtime li mostra al posto giusto — identico a quando erano sei righe a mano
+  - ⚠️ **`<Compile Remove="assets\**" />`** nel csproj: senza, il glob dell'SDK compila i `.cs`
+    degli script **anche** dentro il gioco, e ScriptDiscovery troverebbe due copie di ogni tipo.
+    Per il progetto uno script è un **dato**, come un modello
+  - ⚠️ **La freccia del tempo**: uno script può nominare i tipi del gioco (`using
+    Sandbox.Components;` — l'assembly del gioco è fra le reference), il gioco **non** può
+    nominare i tipi di uno script, perché quando è stato compilato non esistevano. Non è un
+    limite da aggirare: è il motivo per cui i system possono essere script (nessuno li nomina,
+    li trova la scoperta) e un componente che l'HUD interroga per nome no
+  - ⚠️ **Un errore di compilazione non è un crash**: `ScriptCompiler` non lancia mai. Torna
+    l'esito, e il `ScriptsPanel` lo mostra **aprendosi da solo** — l'unico pannello a cui è
+    concesso, perché ha da dire una cosa che l'utente non sa ancora di dover chiedere. Il
+    sintomo altrimenti sarebbe "il mio system non funziona", e si cercherebbe il bug dentro il
+    system invece che nella riga che non compila
+  - ⚠️⚠️ **Trappola pagata: gli implicit usings.** Uno script è identico a un file del
+    progetto, ma il csproj ci mette dentro un `GlobalUsings.g.cs` generato e Roslyn su file
+    grezzi no: 9 CS0246 su `IReadOnlyList`/`Type` che sembravano riferimenti mancanti. Vanno
+    aggiunti a mano, con l'elenco dell'SDK — un elenco diverso sarebbe un dialetto di C# da
+    imparare
+  - ⚠️ **E le reference sono gli assembly CARICATI, non quelli referenziati**: gli implicit
+    usings promettono `System.Net.Http`, che nessuno carica mai → CS0234 dentro un file che non
+    esiste. Un `Assembly.Load` esplicito. La regola generale resta: una libreria che il gioco
+    referenzia senza mai toccare non è caricata, quindi gli script non la vedono
+  - `AssemblyLoadContext` **collezionabile** anche se oggi non si scarica niente: la scelta non
+    si può cambiare dopo, costa nulla ora e sarebbe da rifare tutto poi
+- [ ] **Ricaricare gli script senza riavviare** (hot-reload). ⚠️ Il punto duro non è
+  ricompilare: è **cosa succede alla scena quando un tipo sparisce o cambia forma** mentre il
+  World ne tiene istanze. La strada è la stessa del Play/Stop — snapshot → ricompila →
+  reistanzia — perché **lo snapshot è JSON**, cioè parla di chiavi e non di tipi, quindi
+  sopravvive al cambio. `PlayMode` è già metà del lavoro. ⚠️ Ostacolo vero già individuato:
+  `World.Clear()` **non toglie gli storage**, che tengono i `Type` del vecchio assembly e ne
+  impediscono lo scaricamento. Vedi `HANDOFF.md`
+
+**Verificato a video**, in due passaggi. Prima con gli script ancora nel progetto: il pannello
+Systems mostra `Input: PlayerInput, CameraFollow` · `Simulation: Movement, Physics` · `Render:
+Lighting, MeshRender` — **identico** alle sei righe scritte a mano di prima, e la scena resta
+illuminata (cioè le luci arrivano ancora prima delle mesh). Poi con i tre system **spostati in
+`assets/scripts/` e tolti dal `.csproj`**: il gioco compila senza di loro e il pannello li
+mostra uguali. Nel mezzo, il `ScriptsPanel` si è aperto da solo a dire che 9 righe non
+compilavano — che è esattamente il suo mestiere.
+
+**Milestone:** un system si scrive in **un file dentro gli asset**, e il motore lo trova. Chi
+usa l'editor non tocca né il core dell'ECS né il progetto. 🎉
+
+**Resta** il ricaricamento a caldo: oggi gli script si compilano **all'avvio**, quindi cambiarne
+uno vuol dire riavviare il gioco.
 
 ---
 
@@ -268,7 +1119,22 @@ Da "cubi colorati" a "scena 3D vera".
   - [x] Rigid body + collider **box/sphere** (`RigidBodyComponent`, statici e dinamici);
     capsule/mesh rimandati
   - [x] Sync mondo fisico → `Transform` dell'ECS (`PhysicsSystem`, fixed-step)
-  - [ ] *(rimandato)* Raycast (utile anche per il picking dell'editor)
+  - [x] **Rimozione dei corpi** (`IPhysicsWorld.RemoveBody`) — servita alla Fase 4, ma è
+    un buco della fisica, non dell'editor: senza, un'entità distrutta lasciava un corpo a
+    simulare e collidere da fantasma
+    - [x] `PhysicsSystem` **riconcilia** a ogni update: toglie i corpi la cui entità non
+      esiste più, o che hanno perso il `RigidBody`. Serve una mappa `entityId → BodyId`
+      interna al system, perché il `PhysicsBodyComponent` sparisce insieme all'entità e
+      con lui l'unico riferimento al corpo. È polling e non un evento `OnEntityDestroyed`
+      sul World: così l'ECS resta ignaro della fisica (e di ogni risorsa esterna), e si
+      scandiscono i soli corpi vivi invece di tutto il World
+    - ⚠️ Bug trovato di sponda: `AddBox`/`AddSphere` fanno `Shapes.Add` per **ogni** corpo
+      e non rimuovevano mai la shape. Invisibile con scene statiche, non più con un editor
+      che crea/elimina: ora lo shapeIndex è tracciato per `BodyId` e rimosso col corpo.
+      (`Remove` basta per le convesse; con mesh/compound servirà `RemoveAndDispose`)
+  - [ ] *(rimandato)* Raycast — resta un buco della fisica (query di gioco: line of sight,
+    proiettili, appoggio a terra), ma **non serve più al picking**: quello vuole ciò che si
+    vede, non ciò che collide. Vedi Fase 4
 - [x] **Frustum culling** (non disegnare ciò che è fuori camera)
   - [x] `Frustum` (`src/gEngine/MathUtils/Frustum.cs`) — 6 piani estratti dalla
     view-projection (Gribb–Hartmann, adattato alla convenzione row-vector di
@@ -308,8 +1174,8 @@ Il "poi" che rende l'engine piacevole da usare.
 | Finestra/render/audio | **Raylib-cs** (già in uso) | `Camera3D`, `Model`, `Mesh`, shader |
 | Math | **System.Numerics** | `Vector3`/`Quaternion`/`Matrix4x4`, SIMD, zero dipendenze |
 | Serializzazione | **System.Text.Json** | converter custom per i tipi math |
-| UI editor | **ImGui.NET** + **rlImGui-cs** | immediate-mode dentro Raylib |
-| Gizmi 3D | **ImGuizmo.NET** | move/rotate/scale handles |
+| UI editor | **ImGui.NET** + **rlImgui-cs** | immediate-mode dentro Raylib; solo in `gEngine.Editor` |
+| Gizmi 3D | ~~ImGuizmo.NET~~ → **scritti a mano** | nessun binding compatibile con ImGui.NET 1.91 + rlImgui-cs: vedi Fase 4 |
 | Fisica 3D | **BepuPhysics v2** | sostituisce Aether (2D) |
 | Test | **xUnit** | progetto `tests/` |
 
@@ -319,5 +1185,5 @@ Il "poi" che rende l'engine piacevole da usare.
 
 1. ~~**Fase 2** → scena di primitive navigabile in 3D.~~ ✅
 2. ~~**Fase 3** → scena caricata da file (data-driven).~~ ✅
-3. **Fase 4** → editor: hierarchy + inspector + gizmi + save/load 
-4. **Fase 5** → modelli, luci e fisica 3D reali.
+3. ~~**Fase 4** → editor: hierarchy + inspector + gizmi + save/load + play/stop~~ **chiusa**
+4. **Fase 5** → modelli, luci e fisica 3D reali. *(quasi tutta fatta, mancano le rifiniture [~])*

@@ -3,11 +3,17 @@ using gEngine.Ecs;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
+using gEngine.Scripting;
+using Sandbox.Components;
 
 namespace Sandbox.Systems;
 
+[GameSystem(Order = 10)]
 public class MovementSystem : ISimulationSystem
 {
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(TransformComponent), typeof(VelocityComponent)];
+
     public void OnCreate(World world)
     {
 

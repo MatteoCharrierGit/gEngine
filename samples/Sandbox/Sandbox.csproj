@@ -2,9 +2,17 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\gEngine\gEngine.csproj" />
+    <ProjectReference Include="..\..\src\gEngine.Editor\gEngine.Editor.csproj" />
   </ItemGroup>
 
   <ItemGroup>
+    <!-- ⚠️ Compile Remove PRIMA di tutto il resto, ed è la riga che fa la differenza fra
+         "script" e "codice del progetto": sotto assets/scripts/ ci sono dei .cs, e il glob
+         di default dell'SDK (**/*.cs) li compilerebbe dentro Sandbox.dll. Compilati due
+         volte — una qui e una da Roslyn a runtime — darebbero due copie di ogni tipo, e
+         ScriptDiscovery le troverebbe entrambe.
+         Per il csproj gli script sono DATI, come un modello o una scena: si copiano e basta. -->
+    <Compile Remove="assets\**" />
     <None Include="assets\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

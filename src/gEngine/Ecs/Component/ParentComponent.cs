@@ -16,5 +16,12 @@ namespace gEngine.Ecs.Component;
 /// </summary>
 public struct ParentComponent
 {
+    /// <summary>
+    /// Niente <c>[EditorConfiguration]</c>: è un <b>riferimento</b> a un'altra entità, e il
+    /// posto dove si riparenta è l'albero della Hierarchy, non un campo dell'Inspector — un
+    /// id battuto a mano è un piede nel fucile (nessun controllo che l'entità esista, né che
+    /// non stia creando un ciclo). Il componente resta visibile come header: "questa entità
+    /// ha un genitore" è già un'informazione.
+    /// </summary>
     public Entity Parent;
 }

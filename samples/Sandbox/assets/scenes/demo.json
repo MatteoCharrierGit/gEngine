@@ -12,6 +12,15 @@
       }
     },
     {
+      "name": "game-camera",
+      "_comment": "La camera DEL GIOCO: è un'entità come le altre, quindi si seleziona nella Hierarchy e si muove col gizmo. La camera con cui si naviga nell'editor NON è qui ed è voluto (vedi CameraComponent): è stato dell'editor, non dato di scena. La Rotation è la posa storica di SandboxGame._gameCamera — Position (0,18,28) che guarda (0,6,0) — riscritta nella convenzione Forward=+Z del progetto: verificata numericamente, riderivata torna sullo stesso Target con errore 0.",
+      "components": {
+        "Transform": { "Position": { "x": 0, "y": 18, "z": 28 }, "Rotation": { "x": 0, "y": 0.979578, "z": -0.201066, "w": 0 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
+        "Camera": { "FovY": 60, "Near": 0.01, "Far": 1000, "Projection": "Perspective", "Primary": true }
+      }
+    },
+    {
+      "name": "floor",
       "_comment": "Pavimento: collider statico (Box) + slab visibile. Faccia superiore a y=0.",
       "components": {
         "Transform": { "Position": { "x": 0, "y": -0.5, "z": 0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -21,6 +30,7 @@
     },
 
     {
+      "name": "falling-cube-red",
       "_comment": "Cubo dinamico 1: cade e atterra sul pavimento.",
       "components": {
         "Transform": { "Position": { "x": 0, "y": 10, "z": 0 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -29,6 +39,7 @@
       }
     },
     {
+      "name": "falling-cube-green",
       "_comment": "Cubo dinamico 2.",
       "components": {
         "Transform": { "Position": { "x": 0.6, "y": 13, "z": 0.3 }, "Rotation": { "x": 0.2, "y": 0.1, "z": 0, "w": 0.97 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -37,6 +48,7 @@
       }
     },
     {
+      "name": "falling-cube-yellow",
       "_comment": "Cubo dinamico 3.",
       "components": {
         "Transform": { "Position": { "x": -0.5, "y": 16, "z": -0.4 }, "Rotation": { "x": 0, "y": 0.3, "z": 0.2, "w": 0.93 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -46,6 +58,7 @@
     },
 
     {
+      "name": "glass-box",
       "_comment": "Scatola TRASPARENTE (Layer Transparent + alpha < 255): disegnata dopo gli opachi. Statica, fluttua.",
       "components": {
         "Transform": { "Position": { "x": 5, "y": 2, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -53,6 +66,7 @@
       }
     },
     {
+      "name": "wireframe-box",
       "_comment": "Scatola WIREFRAME. Statica.",
       "components": {
         "Transform": { "Position": { "x": -5, "y": 2, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -60,6 +74,7 @@
       }
     },
     {
+      "name": "sun-directional",
       "_comment": "Luce DIREZIONALE forte e calda, angolata a 45° (pitch): illumina top + un lato, lascia in ombra gli altri → shading ben visibile.",
       "components": {
         "Transform": { "Position": { "x": 0, "y": 10, "z": 0 }, "Rotation": { "x": 0.3827, "y": 0, "z": 0, "w": 0.9239 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -67,6 +82,7 @@
       }
     },
     {
+      "name": "lamp-white",
       "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
       "components": {
         "Transform": { "Position": { "x": 3, "y": 2.5, "z": 3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -74,6 +90,7 @@
       }
     },
     {
+      "name": "lamp-red",
       "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
       "components": {
         "Transform": { "Position": { "x": 6, "y": 2.5, "z": -3 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
@@ -81,13 +98,16 @@
       }
     },
     {
-      "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
+      "name": "lamp-blue",
+      "_comment": "Luce POINT FIGLIA del player: unica entità della scena con un Parent, quindi il suo Transform è LOCALE e la luce segue il player mentre si muove. È il banco di prova della gerarchia (Fase 1) e l'unico caso che fa comparire un albero nel pannello Hierarchy.",
       "components": {
+        "Parent": "player",
         "Transform": { "Position": { "x": 0, "y": 2.5, "z": -2 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },
         "Light": { "Kind": "Point", "Color": { "r": 0, "g": 0, "b": 255 }, "Intensity": 200 }
       }
     },
     {
+      "name": "lamp-green",
       "_comment": "Luce POINT magenta forte vicino alla scena: falloff 1/d^2 ben visibile (vicino intenso, lontano tenue).",
       "components": {
         "Transform": { "Position": { "x": 3, "y": 2.5, "z": 9 }, "Rotation": { "w": 1 }, "Scale": { "x": 1, "y": 1, "z": 1 } },

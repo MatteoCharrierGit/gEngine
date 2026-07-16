@@ -7,6 +7,12 @@ namespace gEngine.Ecs.System;
 
 public class DetectCollision2DSystem : ISimulationSystem
 {
+    // Solo l'insieme che decide su chi agisce. Il system tocca anche le entità con un
+    // Collision2DComponentEvent (per ripulirlo), ma quell'evento se lo scrive da sé: sono
+    // sempre entità con Collider2D + Transform.
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(Collider2DComponent), typeof(TransformComponent)];
+
     public void OnCreate(World world)
     {
         

@@ -10,14 +10,14 @@ namespace gEngine.Ecs.Component;
 /// </summary>
 public struct RigidBodyComponent
 {
-    public ColliderShape Shape;
+    [EditorConfiguration] public ColliderShape Shape;
 
     /// <summary>Box: estensioni piene (larghezza, altezza, profondità). Sfera: raggio = <c>Size.X</c>.</summary>
-    public Vector3 Size;
+    [EditorConfiguration] public Vector3 Size;
 
     /// <summary>Massa per i corpi dinamici. Ignorata se <see cref="IsStatic"/>.</summary>
-    public float Mass;
+    [EditorConfiguration("Massa")] public float Mass;
 
     /// <summary>Statico = non si muove (pavimento/muro); dinamico = soggetto a gravità e collisioni.</summary>
-    public bool IsStatic;
+    [EditorConfiguration("Statico")] public bool IsStatic;
 }

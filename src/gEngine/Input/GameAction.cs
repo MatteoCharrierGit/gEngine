@@ -12,5 +12,7 @@ public enum GameAction
     Attack,
     
     CameraCenter,
-    CameraFreeFly
+    CameraFreeFly,
+
+    ToggleEditor
 }

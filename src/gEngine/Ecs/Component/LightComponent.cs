@@ -10,7 +10,7 @@ namespace gEngine.Ecs.Component;
 /// </summary>
 public struct LightComponent
 {
-    public LightKind Kind;
-    public Color Color;
-    public float Intensity;
+    [EditorConfiguration] public LightKind Kind;
+    [EditorConfiguration] public Color Color;
+    [EditorConfiguration("Intensità")] public float Intensity;
 }

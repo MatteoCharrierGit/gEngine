@@ -67,6 +67,31 @@ public class AssetManager
         return handle;
     }
 
+    /// <summary>
+    /// Path relativo da cui è stato caricato un modello: il <b>verso opposto</b> della
+    /// cache. Serve a salvare una scena — un <see cref="ModelHandle"/> è un id opaco e
+    /// non significa niente al prossimo avvio, mentre <c>"models/x/scene.gltf"</c> sì.
+    ///
+    /// La cache è indicizzata per path, quindi qui si scandisce: è O(n) sui modelli
+    /// caricati, ma succede solo al salvataggio, non per frame.
+    /// </summary>
+    public bool TryGetModelPath(ModelHandle handle, out string relativePath)
+    {
+        foreach (var (fullPath, cached) in _models)
+        {
+            if (cached.Id != handle.Id)
+                continue;
+
+            // Rimettiamo il path nella stessa forma in cui è stato chiesto (relativo alla
+            // cartella asset), così il file di scena resta indipendente dalla macchina.
+            relativePath = Path.GetRelativePath(_rootDir, fullPath).Replace('\\', '/');
+            return true;
+        }
+
+        relativePath = string.Empty;
+        return false;
+    }
+
     // Comodità di playback: passthrough verso il backend, così il gioco parla con un
     // solo oggetto (l'AssetManager) e non deve tenere un riferimento separato al backend.
     public void PlaySound(SoundHandle handle) => _backend.PlaySound(handle);

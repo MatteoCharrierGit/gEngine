@@ -3,16 +3,23 @@ using gEngine.Ecs;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
+using gEngine.Scripting;
+using Sandbox.Components;
 using gEngine.Input;
 
 namespace  Sandbox.Systems;
 
+[GameSystem(Order = 20)]
 public class PlayerInputSystem(InputHandler inputHandler)
     : IInputSystem
 {
 
     private const float Velocity = 2;
-    
+
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(PlayerComponent), typeof(VelocityComponent)];
+
+
     public void OnCreate(World world)
     {
         

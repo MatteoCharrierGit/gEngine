@@ -21,6 +21,10 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
     private AssetManager? _assetManager = null;
     private InputHandler _inputHandler = new InputHandler();
 
+    // Le Resources le possiede il GameLoop, non il gioco: chi crea l'infrastruttura è chi
+    // la dichiara. Il gioco le riceve in Init e ci aggiunge le sue (vedi IGame.Init).
+    private readonly Resources _resources = new Resources();
+
 
     public void Run()
     {
@@ -38,7 +42,18 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
         _assetManager = new AssetManager(AppContext.BaseDirectory, "assets", assetBackend);
         _renderer = new RayLibRenderer(assetBackend);
 
-        Game.Init(_inputHandler, _assetManager);
+        // ⚠️ ORDINE: la registrazione sta QUI e non prima di InitWindow perché renderer e
+        // AssetManager tengono risorse GPU e non possono esistere a finestra chiusa. Ed è
+        // proprio questo il motivo per cui l'IRenderer non poteva stare nella vecchia firma
+        // di Init: ora ci arriva dentro il contenitore, come tutto il resto.
+        // Tipi espliciti: i campi sono nullable (esistono solo dopo InitWindow) e
+        // l'inferenza registrerebbe sotto `AssetManager?`/`IRenderer?`. L'IRenderer va sotto
+        // la porta, non sotto RayLibRenderer — vedi Resources.Add.
+        _resources.Add<InputHandler>(_inputHandler);
+        _resources.Add<AssetManager>(_assetManager);
+        _resources.Add<IRenderer>(_renderer);
+
+        Game.Init(_resources);
 
         while (!Raylib.WindowShouldClose())
         {
