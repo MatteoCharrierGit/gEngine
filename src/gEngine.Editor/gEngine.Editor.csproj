@@ -4,6 +4,12 @@
     <TargetFramework>net10.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+
+    <!-- ImGui è una libreria C e il binding lo lascia vedere: il payload del drag&drop è un
+         ImGuiPayload* che vale null quando non è stato rilasciato niente, e quel confronto in
+         C# vuole unsafe. Un solo blocco, in AssetDragDrop.TryRead, col perché scritto sopra.
+         Il progetto dell'engine ha già lo stesso flag per lo stesso genere di motivo. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <!-- ImGui vive SOLO qui: il core engine non lo referenzia, così un gioco che non
@@ -12,6 +18,13 @@
   <ItemGroup>
     <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
     <PackageReference Include="rlImgui-cs" Version="3.2.0" />
+
+    <!-- Roslyn: compila gli script del gioco a runtime. Sta QUI e non nel core per lo stesso
+         motivo di ImGui, e con più ragione — sono ~10MB di dipendenze che servono solo mentre
+         si sviluppa. Un gioco spedito NON deve compilare i propri script: li ha già compilati
+         chi ha usato l'editor. Il core resta con gli attributi e ScriptDiscovery, che è ciò
+         che serve a un gioco spedito per ritrovarsi i suoi tipi. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.14.0" />
   </ItemGroup>
 
   <ItemGroup>

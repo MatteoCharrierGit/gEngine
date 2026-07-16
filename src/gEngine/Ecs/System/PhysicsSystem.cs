@@ -13,6 +13,11 @@ namespace gEngine.Ecs.System;
 /// </summary>
 public class PhysicsSystem : ISimulationSystem
 {
+    // Il RigidBody è ciò che decide su chi agisce: il PhysicsBodyComponent lo mette questo
+    // system (è [RuntimeState]), quindi dichiararlo direbbe "agisco su chi ho già toccato".
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(TransformComponent), typeof(RigidBodyComponent)];
+
     private readonly IPhysicsWorld _physics;
 
     // Materializza le entità da registrare PRIMA di modificare il world (non si aggiungono

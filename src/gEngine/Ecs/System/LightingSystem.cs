@@ -19,6 +19,9 @@ public class LightingSystem : IRenderSystem
     // vengono ignorate.
     private const int MaxLights = 4;
 
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(TransformComponent), typeof(LightComponent)];
+
     private readonly List<LightData> _lights = new();
 
     public void OnCreate(World world)

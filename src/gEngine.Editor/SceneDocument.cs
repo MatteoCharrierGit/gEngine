@@ -19,8 +19,18 @@ public sealed class SceneDocument
     public required SceneComponentRegistry Registry { get; init; }
     public required AssetManager Assets { get; init; }
 
-    /// <summary>File da cui si carica e su cui si salva.</summary>
-    public required string Path { get; init; }
+    /// <summary>
+    /// File da cui si carica e su cui si salva.
+    ///
+    /// Scrivibile e non <c>init</c> da quando il menu File apre altre scene: aprire <b>è</b>
+    /// cambiare il file del documento, e senza questo l'editor potrebbe caricare solo la
+    /// scena da cui il gioco è partito.
+    ///
+    /// ⚠️ Può essere vuota: è come <c>MainMenuBar</c> rappresenta una scena nuova, che un
+    /// file non ce l'ha. Non c'è un document model che sappia dire "senza titolo" — chi
+    /// legge questa proprietà deve controllare, e <see cref="Save"/> lo fa.
+    /// </summary>
+    public required string Path { get; set; }
 
     /// <summary>
     /// L'ultima <see cref="Scene"/> letta da disco. Tenuta perché il salvataggio la
@@ -33,6 +43,14 @@ public sealed class SceneDocument
 
     public void Save()
     {
+        // La guardia sta qui e non nella UI: il "senza file" è uno stato del documento, e chi
+        // lo interroga per sapere se può salvare finirebbe per dimenticarsene. L'eccezione è
+        // il canale giusto perché chi chiama Save già gestisce quelle del disco (vedi
+        // MainMenuBar.Run): un errore in più nello stesso posto, non un ramo nuovo.
+        if (string.IsNullOrEmpty(Path))
+            throw new InvalidOperationException(
+                "Nessun percorso: questa scena non viene da un file. Aprine una esistente.");
+
         var scene = SceneSerializer.ToScene(World, Registry, Assets, Name, Source);
         JsonSceneLoader.Save(scene, Path);
 

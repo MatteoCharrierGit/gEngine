@@ -88,6 +88,25 @@ public class World
         GetOrCreateStorage<T>().Add(entity.Id, component);
     }
 
+    /// <summary>
+    /// Variante <b>non generica</b>: il tipo si conosce solo a runtime. Gemella di
+    /// <see cref="HasComponent(Entity, Type)"/> e mossa dallo stesso bisogno — l'editor
+    /// manipola componenti di cui non conosce i tipi a compile time. Serve ad "aggiungi
+    /// componente": il tipo esce da un elenco (il <c>SceneComponentRegistry</c>), quindi
+    /// non c'è nessun <c>T</c> da scrivere. I system usano l'overload generico.
+    ///
+    /// Come l'overload generico, <b>sovrascrive</b> se il componente c'è già.
+    ///
+    /// ⚠️ Lo storage è scelto col tipo <b>runtime</b> di <paramref name="component"/>, non
+    /// col suo tipo statico: è l'unico disponibile qui, ma è anche un'asimmetria con
+    /// l'overload generico, che usa <c>typeof(T)</c>. In pratica coincidono — i componenti
+    /// sono tipi concreti, e uno struct boxato riporta il proprio tipo.
+    /// </summary>
+    public void AddComponent(Entity entity, object component)
+    {
+        GetOrCreateStorage(component.GetType()).SetBoxed(entity.Id, component);
+    }
+
     public T GetComponent<T>(Entity entity)
     {
         var storage = GetStorage<T>()
@@ -113,6 +132,16 @@ public class World
         return storage != null && storage.Has(entity.Id);
     }
 
+    /// <summary>
+    /// Variante <b>non generica</b>: il tipo si conosce solo a runtime. Come
+    /// <see cref="ComponentStorages"/>, serve a chi ragiona sui componenti senza conoscerne
+    /// i tipi a compile time — la traceability dei system
+    /// (<c>SystemRegistry.MatchOn</c>) confronta i <c>Type</c> dichiarati con questa. I
+    /// system usano l'overload generico.
+    /// </summary>
+    public bool HasComponent(Entity entity, Type componentType) =>
+        Storages.TryGetValue(componentType, out var storage) && storage.Has(entity.Id);
+
     public void RemoveComponent<T>(Entity entity)
     {
         if (Storages.TryGetValue(typeof(T), out var storage))
@@ -137,6 +166,26 @@ public class World
         }
 
         return (ComponentStorage<T>)storage;
+    }
+
+    /// <summary>
+    /// Come <see cref="GetOrCreateStorage{T}"/> ma col tipo noto solo a runtime: l'unico
+    /// modo di costruire un <c>ComponentStorage&lt;T&gt;</c> senza scrivere quel T è
+    /// chiuderne il generico a mano. Costa una <c>MakeGenericType</c> <b>una volta per
+    /// tipo</b> — solo alla prima entità che riceve quel componente, non a ogni Add —
+    /// e da lì in poi passa tutto dalla faccia non generica, che di reflection non ne ha.
+    /// </summary>
+    private IComponentStorage GetOrCreateStorage(Type componentType)
+    {
+        if (!Storages.TryGetValue(componentType, out var storage))
+        {
+            storage = (IComponentStorage)Activator.CreateInstance(
+                typeof(ComponentStorage<>).MakeGenericType(componentType))!;
+
+            Storages[componentType] = storage;
+        }
+
+        return storage;
     }
     
     internal ComponentStorage<T>? GetStorage<T>()

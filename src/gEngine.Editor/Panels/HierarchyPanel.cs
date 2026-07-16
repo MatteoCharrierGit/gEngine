@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
+using gEngine.Rendering;
 using ImGuiNET;
 
 namespace gEngine.Editor.Panels;
@@ -17,35 +18,29 @@ namespace gEngine.Editor.Panels;
 /// costruite a mano il costo è irrilevante: se un giorno darà fastidio, il posto
 /// giusto per la cache è lo stesso dirty flag già rimandato per le world matrix.
 /// </summary>
-public class HierarchyPanel : IEditorPanel
+public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new Vector2(280, 460))
 {
     private readonly Dictionary<int, List<Entity>> _childrenByParent = [];
     private readonly List<Entity> _roots = [];
 
     /// <summary>Comando richiesto in questo frame, applicato a fine disegno. Vedi ApplyPendingCommand.</summary>
-    private enum Command { None, Create, Duplicate, Destroy }
+    private enum Command { None, Create, CreateChild, Duplicate, Destroy }
 
     private Command _command = Command.None;
 
-    public void Draw(World world, EditorContext context)
+    /// <summary>
+    /// L'entità su cui agisce <see cref="_command"/>.
+    ///
+    /// Esplicito e <b>non</b> "la selezione": il menu contestuale parla della riga su cui si
+    /// è cliccato: leggere la selezione al momento di applicare il comando vorrebbe dire che
+    /// due righe diverse — quella cliccata e quella selezionata — possono essere quella
+    /// sbagliata. Che poi il destro selezioni anche è un servizio all'Inspector, non il
+    /// canale con cui il comando sa su chi agire.
+    /// </summary>
+    private Entity _target;
+
+    protected override void DrawContent(World world, EditorContext context, IRenderer renderer)
     {
-        // FirstUseEver e non Always: è solo la posizione del PRIMO avvio, poi comanda il
-        // layout che l'utente si è salvato in imgui.ini. Senza, ImGui darebbe a ogni
-        // finestra la stessa posizione di default e i pannelli nascerebbero impilati.
-        ImGui.SetNextWindowPos(new Vector2(20, 40), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 460), ImGuiCond.FirstUseEver);
-
-        // Begin restituisce false quando la finestra è collassata, ma End va chiamato
-        // comunque: la coppia deve restare bilanciata o ImGui va in assert.
-        if (!ImGui.Begin("Hierarchy"))
-        {
-            ImGui.End();
-            return;
-        }
-
-        DrawToolbar(world, context);
-        ImGui.Separator();
-
         BuildTree(world);
 
         foreach (var root in _roots)
@@ -56,32 +51,68 @@ public class HierarchyPanel : IEditorPanel
         if (ImGui.IsWindowHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             context.ClearSelection();
 
+        DrawWindowContextMenu();
+
         // Le operazioni sono applicate DOPO aver disegnato l'albero: creare o eliminare
         // un'entità mentre lo si percorre significherebbe modificare gli storage che
         // stiamo iterando.
         ApplyPendingCommand(world, context);
-
-        ImGui.End();
     }
 
-    private void DrawToolbar(World world, EditorContext context)
+    /// <summary>
+    /// Il menu del destro <b>nel vuoto</b>: qui non c'è un'entità di cui parlare, quindi
+    /// l'unica voce sensata è crearne una.
+    ///
+    /// ⚠️ <c>NoOpenOverItems</c> non è cosmetico: senza, il destro su una riga aprirebbe
+    /// <b>anche</b> questo popup, oltre a quello della riga. Sono due id diversi, quindi
+    /// ImGui non ha niente da segnalare — si vedrebbe solo il menu sbagliato, quello senza
+    /// Duplica/Elimina, esattamente dove ci si aspetta l'altro.
+    /// </summary>
+    private void DrawWindowContextMenu()
     {
-        if (ImGui.SmallButton("Nuova"))
+        if (!ImGui.BeginPopupContextWindow("hierarchy-vuoto",
+                ImGuiPopupFlags.MouseButtonRight | ImGuiPopupFlags.NoOpenOverItems))
+            return;
+
+        if (ImGui.MenuItem("Crea entità"))
             _command = Command.Create;
 
-        var hasSelection = context.Selected is { } selected && world.Exists(selected);
+        ImGui.EndPopup();
+    }
 
-        ImGui.SameLine();
-        ImGui.BeginDisabled(!hasSelection);
+    /// <summary>
+    /// Il menu del destro <b>su una riga</b>. I bottoni che c'erano al posto suo (Nuova /
+    /// Duplica / Elimina in una toolbar) chiedevano di selezionare prima e cliccare poi, e
+    /// tenevano occupata una riga del pannello per dire cose che valgono per l'entità che si
+    /// sta guardando.
+    /// </summary>
+    private void DrawEntityContextMenu(Entity entity)
+    {
+        if (!ImGui.BeginPopupContextItem())
+            return;
 
-        if (ImGui.SmallButton("Duplica"))
+        if (ImGui.MenuItem("Crea entità figlia"))
+        {
+            _command = Command.CreateChild;
+            _target = entity;
+        }
+
+        if (ImGui.MenuItem("Duplica"))
+        {
             _command = Command.Duplicate;
+            _target = entity;
+        }
 
-        ImGui.SameLine();
-        if (ImGui.SmallButton("Elimina"))
+        // Separato: le due voci sopra aggiungono, questa toglie — e si porta via i figli.
+        ImGui.Separator();
+
+        if (ImGui.MenuItem("Elimina"))
+        {
             _command = Command.Destroy;
+            _target = entity;
+        }
 
-        ImGui.EndDisabled();
+        ImGui.EndPopup();
     }
 
     private void ApplyPendingCommand(World world, EditorContext context)
@@ -94,38 +125,34 @@ public class HierarchyPanel : IEditorPanel
 
         if (command == Command.Create)
         {
-            var created = world.CreateEntity();
-            world.AddComponent(created, new NameComponent { Value = "Nuova entità" });
-            world.AddComponent(created, new TransformComponent
-            {
-                // Scale a zero renderebbe l'entità invisibile e sembrerebbe un bug della
-                // creazione: un transform neutro è l'unico default onesto.
-                Position = Vector3.Zero,
-                Rotation = Quaternion.Identity,
-                Scale = Vector3.One
-            });
-
-            context.Select(created);
+            context.Select(EntityOperations.Create(world));
             return;
         }
 
-        if (context.Selected is not { } selected || !world.Exists(selected))
+        // Il bersaglio è stato scelto un frame fa, e nel frattempo il mondo ha girato: un
+        // system (o il caricamento di un'altra scena) può averlo distrutto.
+        if (!world.Exists(_target))
             return;
 
-        if (command == Command.Duplicate)
+        switch (command)
         {
-            context.Select(EntityOperations.Duplicate(world, selected));
-            return;
-        }
+            case Command.CreateChild:
+                context.Select(EntityOperations.Create(world, _target));
+                break;
 
-        if (command == Command.Destroy)
-        {
-            EntityOperations.DestroyRecursive(world, selected);
+            case Command.Duplicate:
+                context.Select(EntityOperations.Duplicate(world, _target));
+                break;
 
-            // La selezione punterebbe a un'entità morta: l'Inspector la scarterebbe
-            // comunque (controlla Exists), ma lasciarla lì è uno stato zombie che prima o
-            // poi qualcuno leggerà senza verificare.
-            context.ClearSelection();
+            case Command.Destroy:
+                EntityOperations.DestroyRecursive(world, _target);
+
+                // Solo se la selezione è finita nel sottoalbero eliminato: il destro su
+                // un'entità seleziona, ma "elimina questa" non è "dimentica quell'altra".
+                if (context.Selected is { } selected && !world.Exists(selected))
+                    context.ClearSelection();
+
+                break;
         }
     }
 
@@ -180,8 +207,16 @@ public class HierarchyPanel : IEditorPanel
         var open = ImGui.TreeNodeEx(Label(world, entity), flags);
 
         // IsItemToggledOpen esclude il clic sulla freccia: aprire un nodo non è selezionarlo.
-        if (ImGui.IsItemClicked() && !ImGui.IsItemToggledOpen())
+        // Anche il destro seleziona: il menu che sta per aprirsi parla di questa entità, e
+        // l'Inspector deve mostrare quella di cui si sta per decidere la sorte — non quella
+        // cliccata l'ultima volta col sinistro.
+        if ((ImGui.IsItemClicked() || ImGui.IsItemClicked(ImGuiMouseButton.Right)) &&
+            !ImGui.IsItemToggledOpen())
             context.Select(entity);
+
+        // Subito dopo l'item: BeginPopupContextItem senza id usa l'id dell'ultimo disegnato,
+        // cioè questa riga. Prima di scendere nei figli, che diventerebbero "l'ultimo item".
+        DrawEntityContextMenu(entity);
 
         if (open && hasChildren)
         {

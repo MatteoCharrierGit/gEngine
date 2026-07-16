@@ -14,5 +14,5 @@ namespace gEngine.Ecs.Component;
 /// </summary>
 public struct NameComponent
 {
-    public string Value;
+    [EditorConfiguration("Nome")] public string Value;
 }

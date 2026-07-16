@@ -9,6 +9,9 @@ namespace gEngine.Ecs.System;
 
 public class MeshRenderSystem : IRenderSystem
 {
+    public IReadOnlyList<Type> MatchedComponents { get; } =
+        [typeof(TransformComponent), typeof(MeshRendererComponent)];
+
     // Buffer riusato ogni frame per evitare un'allocazione a ogni OnRender.
     private readonly List<Entry> _drawList = new();
 
@@ -35,7 +38,10 @@ public class MeshRenderSystem : IRenderSystem
         _drawList.Clear();
 
         // Frustum della camera, ricostruito una volta per frame dalla view-projection.
-        var aspect = (float)renderer.GetScreenWidth() / renderer.GetScreenHeight();
+        // GetRenderWidth/Height e non GetScreenWidth/Height: dentro un viewport dell'editor
+        // si disegna su un render target grande quanto il pannello, e l'aspect della
+        // finestra scarterebbe le entità sbagliate (visibili ai lati, cullate lo stesso).
+        var aspect = (float)renderer.GetRenderWidth() / renderer.GetRenderHeight();
         var frustum = Frustum.FromViewProjection(camera.GetViewProjection(aspect));
 
         // 1) Raccogli i visibili E dentro il frustum, con la chiave di ordinamento.
@@ -44,9 +50,11 @@ public class MeshRenderSystem : IRenderSystem
             if (!meshRenderer.Visible)
                 continue;
 
-            // GetWorldMatrix risale l'eventuale catena di ParentComponent: per una
-            // root coincide con il locale, per una figlia include il mondo del genitore.
-            var worldMatrix = Matrix4x4.CreateScale(meshRenderer.Size) * world.GetWorldMatrix(entity);
+            // GetRenderMatrix risale l'eventuale catena di ParentComponent (per una root
+            // coincide col locale, per una figlia include il mondo del genitore) e ci
+            // applica la Size. È condivisa con l'EntityPicker apposta: quel che si disegna
+            // dev'essere quel che si clicca.
+            var worldMatrix = world.GetRenderMatrix(entity, meshRenderer);
 
             // Frustum culling: se la bounding sphere è tutta fuori, salta la draw call.
             var (center, radius) = BoundingSphere(worldMatrix);
