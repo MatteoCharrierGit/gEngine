@@ -24,4 +24,14 @@ public interface IPhysicsWorld : IDisposable
     /// (che non hanno bisogno di sync).
     /// </summary>
     bool TryGetPose(BodyId id, out Vector3 position, out Quaternion orientation);
+
+    /// <summary>
+    /// Toglie il corpo dalla simulazione. Serve a chiunque distrugga un'entità: il mondo
+    /// fisico non sa niente dell'ECS, quindi un corpo non rimosso continuerebbe a
+    /// simulare (e a collidere) per un'entità che non esiste più.
+    ///
+    /// Handle non valido o già rimosso = <b>no-op sicuro</b>, come da convenzione degli
+    /// handle opachi.
+    /// </summary>
+    void RemoveBody(BodyId id);
 }

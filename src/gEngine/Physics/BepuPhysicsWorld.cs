@@ -25,6 +25,12 @@ public class BepuPhysicsWorld : IPhysicsWorld
 
     private readonly Dictionary<int, BodyHandle> _dynamicBodies = new();
     private readonly Dictionary<int, StaticHandle> _staticBodies = new();
+
+    // Shape per BodyId: Add* ne registra una NUOVA per ogni corpo, quindi ognuna va
+    // rimossa col proprio corpo. Senza, la collection Shapes cresce a ogni
+    // create/delete — invisibile con scene statiche, non più con un editor.
+    private readonly Dictionary<int, TypedIndex> _shapes = new();
+
     private int _nextId = 1; // 0 = BodyId.None
 
     public BepuPhysicsWorld(Vector3 gravity)
@@ -63,6 +69,7 @@ public class BepuPhysicsWorld : IPhysicsWorld
 
         var id = _nextId++;
         _dynamicBodies[id] = handle;
+        _shapes[id] = shapeIndex;
         return new BodyId(id);
     }
 
@@ -72,7 +79,25 @@ public class BepuPhysicsWorld : IPhysicsWorld
 
         var id = _nextId++;
         _staticBodies[id] = handle;
+        _shapes[id] = shapeIndex;
         return new BodyId(id);
+    }
+
+    public void RemoveBody(BodyId id)
+    {
+        if (_dynamicBodies.Remove(id.Id, out var dynamicHandle))
+            _simulation.Bodies.Remove(dynamicHandle);
+        else if (_staticBodies.Remove(id.Id, out var staticHandle))
+            _simulation.Statics.Remove(staticHandle);
+        else
+            return; // handle non valido o già rimosso: no-op
+
+        // La shape è per corpo (vedi _shapes): se ne va con lui.
+        // NB: Remove basta per le shape convesse (Box/Sphere), che non possiedono buffer.
+        // Con mesh/compound servirà RemoveAndDispose(shape, _bufferPool) per non perdere
+        // la memoria del BufferPool.
+        if (_shapes.Remove(id.Id, out var shapeIndex))
+            _simulation.Shapes.Remove(shapeIndex);
     }
 
     public void Step(float dt)

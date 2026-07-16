@@ -6,9 +6,10 @@ using gEngine.Physics;
 namespace gEngine.Ecs.System;
 
 /// <summary>
-/// Ponte ECS ⇄ mondo fisico. Ogni update: crea i corpi mancanti, avanza la simulazione
-/// di un passo fisso, poi riscrive nel <see cref="TransformComponent"/> la posa dei corpi
-/// dinamici. Gira come <see cref="ISimulationSystem"/> nel fixed-step del GameLoop.
+/// Ponte ECS ⇄ mondo fisico. Ogni update: rimuove i corpi rimasti orfani, crea quelli
+/// mancanti, avanza la simulazione di un passo fisso, poi riscrive nel
+/// <see cref="TransformComponent"/> la posa dei corpi dinamici. Gira come
+/// <see cref="ISimulationSystem"/> nel fixed-step del GameLoop.
 /// </summary>
 public class PhysicsSystem : ISimulationSystem
 {
@@ -17,6 +18,13 @@ public class PhysicsSystem : ISimulationSystem
     // Materializza le entità da registrare PRIMA di modificare il world (non si aggiungono
     // componenti mentre si itera la stessa query).
     private readonly List<(Entity Entity, TransformComponent Transform, RigidBodyComponent Body)> _pending = new();
+
+    // I corpi creati da questo system, per entità. Serve una mappa NOSTRA e non basta il
+    // PhysicsBodyComponent: quando l'entità viene distrutta il componente sparisce con
+    // lei, e con esso l'unico riferimento al corpo Bepu — che resterebbe a simulare per
+    // sempre. Questa mappa è ciò che sopravvive alla distruzione e permette di accorgersene.
+    private readonly Dictionary<int, BodyId> _bodiesByEntity = new();
+    private readonly List<int> _orphaned = new();
 
     public PhysicsSystem(IPhysicsWorld physics)
     {
@@ -29,6 +37,9 @@ public class PhysicsSystem : ISimulationSystem
 
     public void OnUpdate(World world, float dt)
     {
+        // 0) Rimuovi i corpi rimasti orfani.
+        RemoveOrphanedBodies(world);
+
         // 1) Registra i corpi per le entità con RigidBody ma ancora senza corpo fisico.
         _pending.Clear();
         foreach (var (entity, transform, body) in world.Query<TransformComponent, RigidBodyComponent>())
@@ -44,6 +55,7 @@ public class PhysicsSystem : ISimulationSystem
                 : _physics.AddBox(transform.Position, transform.Rotation, body.Size, body.Mass, body.IsStatic);
 
             world.AddComponent(entity, new PhysicsBodyComponent { Body = id });
+            _bodiesByEntity[entity.Id] = id;
         }
 
         // 2) Avanza la simulazione di un passo.
@@ -59,6 +71,50 @@ public class PhysicsSystem : ISimulationSystem
             transform.Position = position;
             transform.Rotation = orientation;
             world.AddComponent(entity, transform); // write-back (TransformComponent è struct)
+        }
+    }
+
+    /// <summary>
+    /// Toglie dalla simulazione i corpi che non hanno più un motivo di esistere. Due casi,
+    /// entrambi resi possibili dall'editor:
+    /// <list type="bullet">
+    ///   <item>l'<b>entità è stata distrutta</b> — il suo <c>PhysicsBodyComponent</c> è
+    ///   sparito con lei, quindi nessuna query può più trovare il corpo: senza questo
+    ///   passaggio resterebbe a simulare e collidere da fantasma;</item>
+    ///   <item>il <b>RigidBody è stato rimosso</b> ma l'entità vive — "non è più un corpo
+    ///   fisico" deve valere anche per Bepu, non solo per l'ECS.</item>
+    /// </list>
+    /// È una riconciliazione a polling invece che un evento <c>OnEntityDestroyed</c> sul
+    /// World: l'ECS resta ignaro della fisica (e di qualunque risorsa esterna), e il costo
+    /// è una scansione dei soli corpi vivi, non di tutto il World.
+    /// </summary>
+    private void RemoveOrphanedBodies(World world)
+    {
+        _orphaned.Clear();
+
+        foreach (var (entityId, _) in _bodiesByEntity)
+        {
+            var entity = new Entity(entityId);
+
+            if (world.Exists(entity) && world.HasComponent<RigidBodyComponent>(entity))
+                continue;
+
+            _orphaned.Add(entityId);
+        }
+
+        // Fuori dal ciclo: stiamo modificando la stessa mappa che scorrevamo.
+        foreach (var entityId in _orphaned)
+        {
+            _physics.RemoveBody(_bodiesByEntity[entityId]);
+            _bodiesByEntity.Remove(entityId);
+
+            // Caso "RigidBody rimosso": l'entità vive ancora e si porterebbe dietro un
+            // PhysicsBodyComponent che punta a un corpo ormai morto. Va tolto anche quello,
+            // altrimenti rimettere un RigidBody in seguito non ricreerebbe nulla — il
+            // system leggerebbe il link stantio come "il corpo esiste già".
+            var entity = new Entity(entityId);
+            if (world.Exists(entity))
+                world.RemoveComponent<PhysicsBodyComponent>(entity);
         }
     }
 }
