@@ -5,6 +5,7 @@ using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
 using gEngine.Ecs.System;
+using gEngine.Editor;
 using gEngine.Input;
 using gEngine.Physics;
 using gEngine.Rendering;
@@ -36,6 +37,9 @@ public class SandboxGame() : IGame
     
     private FreeFlyCamera3DController _freeFlyCamera3DController;
 
+    // L'editor è posseduto dal gioco, non dal GameLoop: vedi il commento su EditorHost.
+    private readonly EditorHost _editor = new EditorHost();
+
 
     private List<IInputSystem>? _inputSystems;
     private List<ISimulationSystem>? _simulationSystems;
@@ -46,17 +50,24 @@ public class SandboxGame() : IGame
     // AssetManager posseduto dal GameLoop e ricevuto in Init (vedi IGame.Init).
     private AssetManager _assetManager = null!;
 
+    // Ricevuto in Init e tenuto qui perché serve anche in Draw (toggle dell'editor),
+    // che a differenza di Update non lo riceve come parametro.
+    private InputHandler _inputHandler = null!;
+
     // Mondo fisico (adapter Bepu), posseduto dal gioco.
     // il suo ciclo di vita non è legato alla finestra: lo creo qui e lo dispongo in Shutdown.
     private readonly IPhysicsWorld _physics = new BepuPhysicsWorld(new Vector3(0, -9.81f, 0));
 
     private TextureHandle _playerSprite;
     private MusicHandle _introSound;
+
+    private SceneDocument _sceneDocument = null!;
     
 
     public void Init(InputHandler inputHandler, AssetManager assets)
     {
         _assetManager = assets;
+        _inputHandler = inputHandler;
 
         var gameActionContext = new GameActionContext();
         gameActionContext.AddToContext([new InputBinding(){KKey = KeyboardKey.W}], GameAction.MoveUp);
@@ -65,7 +76,8 @@ public class SandboxGame() : IGame
         gameActionContext.AddToContext([new InputBinding(){KKey = KeyboardKey.D}], GameAction.MoveRight);
         gameActionContext.AddToContext([new InputBinding(){KKey = KeyboardKey.Space}], GameAction.CameraCenter);
         gameActionContext.AddToContext([new InputBinding(){MButton = MouseButton.Right}], GameAction.CameraFreeFly);
-        
+        gameActionContext.AddToContext([new InputBinding(){KKey = KeyboardKey.F1}], GameAction.ToggleEditor);
+
         inputHandler.SetActiveContext(gameActionContext);
         _freeFlyCamera3DController = new FreeFlyCamera3DController(inputHandler, _camera);
         
@@ -87,6 +99,17 @@ public class SandboxGame() : IGame
         var scene = JsonSceneLoader.Load(scenePath);
         SceneInstantiator.Instantiate(scene, _world, registry, _assetManager);
 
+        // Ciò che l'editor non può indovinare: il registry (che contiene i componenti
+        // custom di Sandbox) e dove sta la scena.
+        _sceneDocument = new SceneDocument
+        {
+            World = _world,
+            Registry = registry,
+            Assets = _assetManager,
+            Path = scenePath,
+            Source = scene
+        };
+
         AddSystem(new MovementSystem());
         AddSystem(new PlayerInputSystem(inputHandler));
         AddSystem(new CameraFollowSystem(_camera, inputHandler));
@@ -101,18 +124,26 @@ public class SandboxGame() : IGame
         _assetManager.PlayMusic(_introSound);
         
         _freeFlyCamera3DController.Init();
-        
+
+        // Dopo InitWindow (Init è chiamato dal GameLoop a finestra già aperta): rlImGui
+        // carica la texture dell'atlas dei font, quindi vuole un contesto grafico vivo.
+        _editor.Setup(_sceneDocument);
     }
 
     public void Update(float fixedDeltaTime, InputHandler  inputHandler)
     {
         if (_inputSystems == null) return;
-        
-        foreach (var system in _inputSystems)
-            system.OnUpdate(_world, fixedDeltaTime);
-        
-        _freeFlyCamera3DController.OnUpdate(fixedDeltaTime);
-        
+
+        // ImGui e il gioco leggono lo stesso mouse/tastiera. Quando l'editor li sta usando
+        // (puntatore sopra un pannello, campo col focus) il gioco deve stare fermo: senza
+        // questi due guard, un clic su un pannello farebbe anche ruotare la camera.
+        if (!_editor.WantsKeyboard)
+            foreach (var system in _inputSystems)
+                system.OnUpdate(_world, fixedDeltaTime);
+
+        if (!_editor.WantsMouse)
+            _freeFlyCamera3DController.OnUpdate(fixedDeltaTime);
+
         if (_simulationSystems == null) return;
         
         foreach (var system in _simulationSystems)
@@ -126,6 +157,13 @@ public class SandboxGame() : IGame
 
     public void Draw(IRenderer renderer)
     {
+        // Il toggle sta qui e non in Update perché Update è a passo fisso: in un frame
+        // lento gira più volte, e un input edge-triggered come "F1 premuto" verrebbe
+        // consumato a ogni iterazione, ribaltando l'editor due volte (= nessun effetto).
+        // Draw gira esattamente una volta per frame, come il polling dell'input.
+        if (_inputHandler.IsActionPressed(GameAction.ToggleEditor))
+            _editor.Visible = !_editor.Visible;
+
         renderer.BeginFrame();
         renderer.ClearBackground(Color.White);
         
@@ -138,18 +176,29 @@ public class SandboxGame() : IGame
         renderer.End3D();
         
         
-        var (_, transform, _) = _world.Query<TransformComponent, VelocityComponent>().First();
-        
+        // Nullable + FirstOrDefault, non First: da quando l'editor sa eliminare entità,
+        // "esiste sempre un player" non è più un invariante — e un HUD non deve far cadere
+        // il gioco perché non ha niente da mostrare.
+        var playerTransform = _world.Query<TransformComponent, VelocityComponent>()
+            .Select(query => (TransformComponent?)query.C1)
+            .FirstOrDefault();
+
         const int hudPadding = 20;
         const int hudBoxWidth = 220;
         const int hudBoxHeight = 40;
         var hudBoxX = hudPadding;
         var hudBoxY = renderer.GetScreenHeight() - hudBoxHeight - hudPadding;
 
+        var hudText = playerTransform is { } transform
+            ? $"Pos: ({transform.Position.X:F0}, {transform.Position.Y:F0})"
+            : "Nessun player";
+
         renderer.DrawRectangle(hudBoxX, hudBoxY, hudBoxWidth, hudBoxHeight, new Color(0, 0, 0, 150));
-        renderer.DrawText($"Pos: ({transform.Position.X:F0}, {transform.Position.Y:F0})", hudBoxX + 10, hudBoxY + 10, 20, Color.White);
+        renderer.DrawText(hudText, hudBoxX + 10, hudBoxY + 10, 20, Color.White);
         renderer.DrawText("GameTime: " +  Raylib.GetTime(), 20, 20, 30, Color.Black);
 
+        // Per ultimo, ancora dentro il frame: i pannelli vanno sopra scena e HUD.
+        _editor.Draw(_world, renderer.GetFrameTime());
 
         renderer.EndFrame();
         
@@ -160,6 +209,8 @@ public class SandboxGame() : IGame
     public void Shutdown()
     {
         // Le risorse asset sono scaricate dal GameLoop (che possiede l'AssetManager).
+        // Shutdown gira prima di CloseWindow: rlImGui fa in tempo a liberare le sue texture.
+        _editor.Shutdown();
         _physics.Dispose();
     }
 
