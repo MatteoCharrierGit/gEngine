@@ -39,5 +39,25 @@ public class ComponentStorage<T> : IComponentStorage
     {
         _components.Remove(entityId);
     }
-    
+
+
+    // ------ FACCIA NON GENERICA (IComponentStorage) --------------------------------
+    // Usata solo dall'editor, che non conosce i tipi a compile time. Vedi IComponentStorage.
+
+    public Type ComponentType => typeof(T);
+
+    public void Clear()
+    {
+        _components.Clear();
+    }
+
+    public object? GetBoxed(int entityId)
+    {
+        return _components.TryGetValue(entityId, out var component) ? component : null;
+    }
+
+    public void SetBoxed(int entityId, object component)
+    {
+        _components[entityId] = (T)component;
+    }
 }
