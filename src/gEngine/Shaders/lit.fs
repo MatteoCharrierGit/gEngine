@@ -63,7 +63,12 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 void main()
 {
     vec4 albedoTex = texture(texture0, fragTexCoord);
-    vec3 albedo = albedoTex.rgb*colDiffuse.rgb*fragColor.rgb;
+
+    // texture0 e colDiffuse sono in spazio sRGB, il lighting qui sotto vuole valori
+    // lineari. Senza questa conversione la pow(1/2.2) in fondo applica la gamma una
+    // seconda volta e l'immagine esce slavata e senza contrasto.
+    // fragColor resta com'è: per la spec glTF i vertex color sono già lineari.
+    vec3 albedo = pow(albedoTex.rgb, vec3(2.2))*pow(colDiffuse.rgb, vec3(2.2))*fragColor.rgb;
 
     vec3 N = normalize(fragNormal);
     vec3 V = normalize(viewPos - fragPosition);

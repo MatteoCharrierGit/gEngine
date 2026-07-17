@@ -25,6 +25,11 @@ public unsafe class RayLibRenderer : IRenderer
     // Shader di illuminazione (PBR semplice) + cache delle location delle uniform, così
     // ogni frame settiamo i valori per indice senza ri-cercare le stringhe.
     private Shader _litShader;
+
+    // Shader per i material con l'illuminazione già cotta nella texture. Non ha uniform
+    // da aggiornare: non sa niente di luci, ed è tutto il punto.
+    private Shader _unlitShader;
+
     private int _viewPosLoc;
     private readonly int[] _lightEnabledLoc = new int[MaxLights];
     private readonly int[] _lightTypeLoc = new int[MaxLights];
@@ -40,17 +45,31 @@ public unsafe class RayLibRenderer : IRenderer
         _defaultMaterial = Raylib.LoadMaterialDefault();
 
         SetupLightShader();
+        SetupUnlitShader();
 
         // Il material di default (usato per i cubi) usa lo shader illuminato.
         _defaultMaterial.Shader = _litShader;
     }
 
-    private void SetupLightShader()
+    private static Shader LoadEngineShader(string vertexName, string fragmentName)
     {
         var shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
-        _litShader = Raylib.LoadShader(
-            Path.Combine(shaderDir, "lit.vs"),
-            Path.Combine(shaderDir, "lit.fs"));
+        return Raylib.LoadShader(
+            Path.Combine(shaderDir, vertexName),
+            Path.Combine(shaderDir, fragmentName));
+    }
+
+    // Nessuna uniform da agganciare: mvp e colDiffuse li mette raylib da sé, e di luci
+    // questo shader non vuole sapere niente. Per questo non c'è un _unlitShader dentro
+    // SetLighting — non è una dimenticanza.
+    private void SetupUnlitShader()
+    {
+        _unlitShader = LoadEngineShader("unlit.vs", "unlit.fs");
+    }
+
+    private void SetupLightShader()
+    {
+        _litShader = LoadEngineShader("lit.vs", "lit.fs");
 
         // matModel/matNormal/colDiffuse/mvp li aggancia raylib da sé (nomi standard).
         _viewPosLoc = Raylib.GetShaderLocation(_litShader, "viewPos");
@@ -202,9 +221,12 @@ public unsafe class RayLibRenderer : IRenderer
             case MeshKind.Model:
                 if (_assetBackend.TryGetModel(command.Model, out var model))
                 {
-                    // Applica lo shader illuminato ai material del modello (idempotente).
+                    // Applica lo shader scelto ai material del modello (idempotente).
+                    // Unlit: il modello ha l'illuminazione già dipinta nella texture, e
+                    // ri-illuminarlo sommerebbe le ombre calcolate a quelle già cotte.
+                    var shader = command.Unlit ? _unlitShader : _litShader;
                     for (var i = 0; i < model.MaterialCount; i++)
-                        model.Materials[i].Shader = _litShader;
+                        model.Materials[i].Shader = shader;
 
                     // Come per il cubo: la world matrix (row-major numerics) va trasposta
                     // nel layout column-major di raylib. Model.Transform è la matrice che
@@ -290,6 +312,7 @@ public unsafe class RayLibRenderer : IRenderer
         _renderTargets.Clear();
 
         Raylib.UnloadShader(_litShader);
+        Raylib.UnloadShader(_unlitShader);
         Raylib.UnloadMesh(_unitCubeMesh);
         // NB: _defaultMaterial usa _litShader (già scaricato sopra). Non chiamiamo
         // UnloadMaterial per evitare un doppio-unload dello shader su alcune versioni

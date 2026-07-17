@@ -63,7 +63,7 @@ public class MeshRenderSystem : IRenderSystem
 
             var command = new DrawMeshCommand(
                 meshRenderer.Kind, worldMatrix, Vector3.Zero, meshRenderer.Tint, meshRenderer.Wireframe,
-                meshRenderer.Model);
+                meshRenderer.Model, meshRenderer.Unlit);
 
             _drawList.Add(new Entry(meshRenderer.Layer, meshRenderer.SortingOrder, command));
         }

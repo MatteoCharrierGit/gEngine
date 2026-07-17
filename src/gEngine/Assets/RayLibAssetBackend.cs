@@ -48,9 +48,45 @@ public class RayLibAssetBackend : IAssetBackend
     public ModelHandle LoadModel(string absolutePath)
     {
         var model = Raylib.LoadModel(absolutePath);
+        GenerateAlbedoMipmaps(model);
+
         var id = _nextId++;
         _models[id] = model;
         return new ModelHandle(id);
+    }
+
+    /// <summary>
+    /// Genera le mipmap delle mappe albedo del modello e ci mette sopra il filtro
+    /// trilineare.
+    ///
+    /// Serve perché il loader glTF di raylib le texture le carica e basta: un solo livello
+    /// di mipmap, e in quel caso rlgl imposta il filtro a <c>NEAREST</c>. Su un atlas di
+    /// personaggio si vede eccome — blocchettoso da vicino e con lo sfarfallio tipico
+    /// dell'aliasing appena la mesh si muove.
+    ///
+    /// Il posto giusto è qui e non nel renderer: è l'unico punto in cui il modello passa
+    /// dalle nostre mani con le texture già caricate sulla GPU, e va fatto una volta per
+    /// modello — non una per frame.
+    /// </summary>
+    private static unsafe void GenerateAlbedoMipmaps(Model model)
+    {
+        // ⚠️ La texture di default di raylib (1x1 bianca) è CONDIVISA: raylib la assegna ai
+        // material glTF privi di baseColorTexture, ma la usa anche per disegnare le shape
+        // 2D. Generarci sopra le mipmap e cambiarle il filtro toccherebbe anche quelle, da
+        // sotto — quindi la si salta.
+        var defaultTextureId = Rlgl.GetTextureIdDefault();
+
+        for (var i = 0; i < model.MaterialCount; i++)
+        {
+            var map = &model.Materials[i].Maps[(int)MaterialMapIndex.Albedo];
+            if (map->Texture.Id == 0 || map->Texture.Id == defaultTextureId)
+                continue;
+
+            // In quest'ordine: il trilineare interpola TRA livelli di mipmap, e senza
+            // livelli raylib lo rifiuta con un warning lasciando il filtro com'era.
+            Raylib.GenTextureMipmaps(&map->Texture);
+            Raylib.SetTextureFilter(map->Texture, TextureFilter.Trilinear);
+        }
     }
 
     /// <summary>

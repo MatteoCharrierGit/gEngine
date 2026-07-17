@@ -13,6 +13,22 @@ public class MeshRendererComponent
     [EditorConfiguration] public bool Visible;
 
     /// <summary>
+    /// Disegna senza illuminazione: il colore è la texture del modello, così com'è.
+    /// Default: false.
+    ///
+    /// Serve per i modelli con l'illuminazione già cotta nella texture — in glTF li
+    /// riconosci dall'estensione <c>KHR_materials_unlit</c>, tipica degli export da
+    /// giochi. Ri-illuminarli con lo shader PBR somma le ombre calcolate a quelle già
+    /// dipinte: il modello viene fuori scuro e con i volumi sbagliati, e nessuna
+    /// regolazione delle luci lo sistema.
+    ///
+    /// È un flag manuale perché raylib, dopo <c>LoadModel</c>, l'informazione non la
+    /// espone: il suo <c>Material</c> non ha un concetto di "unlit". Saperlo da soli
+    /// vorrebbe dire parsare il glTF in proprio.
+    /// </summary>
+    [EditorConfiguration("Unlit (texture già illuminata)")] public bool Unlit;
+
+    /// <summary>
     /// Modello da disegnare quando <see cref="Kind"/> è <see cref="MeshKind.Model"/>.
     /// Handle opaco caricato via <c>AssetManager.LoadModel</c>. Ignorato per le primitive
     /// (Cube/Plane/Grid). Default: <see cref="ModelHandle.None"/>.
