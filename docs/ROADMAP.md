@@ -313,6 +313,55 @@ assembly.
       query del player, quindi **cancellare il player faceva crashare il gioco**. "Esiste
       sempre un player" non è più un invariante da quando c'è un editor: ora l'HUD degrada
       a "Nessun player"
+  - [x] **Riparentare trascinando** — `EntityDragDrop` + `EntityOperations.Reparent`/`CanReparent`
+    - ⚠️ **Era un buco che cinque punti dichiaravano chiuso**: `ParentComponent` non è esposto
+      nell'Inspector *«perché ci si riparenta dalla Hierarchy»*, il registry non gli dà un
+      default per lo stesso motivo, e **due tooltip mostrati all'utente** ripetevano la frase —
+      mentre la Hierarchy leggeva `ParentComponent` solo per **disegnare** l'albero. L'editor
+      mandava a fare una cosa che non si poteva fare. Chiuso il buco, non corrette le frasi
+    - Stessa meccanica di `AssetDragDrop` con un payload diverso (un `Entity` invece di un
+      path), e per lo stesso motivo: **il nome del payload è il tipo**, quindi un modello non
+      illumina una riga dell'albero e un'entità non illumina lo slot di un asset
+    - [x] **Il bersaglio non viene offerto se la mossa è illegale** (`TryPeek` + `CanReparent`
+      *prima* di `BeginDragDropTarget`): su sé stessi o dentro un proprio discendente la riga
+      **non si illumina nemmeno**. È il principio del payload tipizzato portato un passo più in
+      là — lì è ImGui a non accoppiare due tipi, qui siamo noi a non offrire ciò che
+      rifiuteremmo. Il controllo è **ripetuto** nell'applicazione del comando: fra il rilascio e
+      l'esecuzione passa un frame, e il mondo ha girato
+    - ⚠️ **I cicli non sono un dato strano, sono un blocco totale**: `GetWorldMatrix` risale i
+      genitori ricorsivamente **senza guard**. È lo stesso pericolo del visited set di
+      `DestroyRecursive` visto dall'altro lato — lì ci si difende da un ciclo esistente, qui si
+      impedisce di crearlo (e `IsDescendantOf` ha comunque il suo visited set, perché una scena
+      scritta a mano può già contenerne uno)
+    - [x] **A radice si toglie il `ParentComponent`**, non si mette a `Entity(0)`: la Hierarchy
+      tratterebbe comunque l'entità come radice, ma con dentro un riferimento rotto fino al
+      salvataggio. Il bersaglio "diventa radice" è una riga che **compare solo durante il
+      trascinamento**: il vuoto sotto l'albero non dice di essere un bersaglio
+    - [x] **La posa di mondo è mantenuta** (semantica Unity, *decisa dal proprietario*): a
+      cambiare è il Transform **locale**, via `World.SetWorldPose`. Chi riordina l'albero non
+      sta chiedendo di spostare l'oggetto, e vederlo saltare sembrerebbe un bug del
+      trascinamento
+      - Verificato numericamente su **20k** riparentamenti fra gerarchie a 3 livelli:
+        pos **3.5e-5**, orientamento **1.2e-7**. Il controllo "riparenta e basta" (senza
+        ricalcolo) sbaglia di **348** / **1.0** — sette ordini di grandezza, quindi **la
+        verifica discrimina** invece di passare comunque. A radice: **0 esatto** (nessuna
+        inversione, come già fa `SetWorldPose`)
+      - ⚠️ **Eredita il debito di `SetWorldPose`**: con genitore a scala **non uniforme** la
+        posizione resta esatta (1e-5) ma l'orientamento sbaglia **in silenzio** — misurato qui:
+        `1-|dot|` **0.47 mediano**, cioè ~117°. Finora il caso non mordeva perché i genitori
+        vivi avevano scala uniforme; **trascinando a mano si arriva ovunque**, quindi qui è
+        molto più raggiungibile che altrove
+    - Verificato **a video** col rig della Fase 4.7: la zona "diventa radice" che si illumina
+      col colore acceso del tema mentre `lamp-blue` esce da `player` (che torna una foglia), e
+      `lamp-green` che diventa figlia di `falling-cube-red`. Il rifiuto del ciclo è stato
+      guardato **dal vivo** (log temporaneo: *«sopra lamp-green con falling-cube-red in mano,
+      legale=False»*), non solo dedotto. La catena fino al file è verificata a parte: dopo il
+      riparentamento il json esce con `"Parent": "floor"` — **per nome**, come vuole il formato
+    - ⚠️ **Trappola del rig, non del prodotto** (pagata una volta): rlImGui campiona il mouse
+      **a livello, una volta per frame**, quindi se la pressione sintetica e i primi spostamenti
+      cadono nello stesso frame ImGui registra la pressione sulla posizione **finale** — si
+      afferra la riga sbagliata e sembra che il trascinamento non funzioni. La pressione vuole
+      un frame tutto suo, con margine
 - [x] **Pannello Inspector** (reflection-driven) — `src/gEngine.Editor/Panels/InspectorPanel.cs`
   - [x] Mostra i componenti dell'entità selezionata
   - [x] **`[EditorConfiguration]`** (`src/gEngine/Ecs/Component/EditorConfigurationAttribute.cs`) —
@@ -1082,6 +1131,206 @@ usa l'editor non tocca né il core dell'ECS né il progetto. 🎉
 
 **Resta** il ricaricamento a caldo: oggi gli script si compilano **all'avvio**, quindi cambiarne
 uno vuol dire riavviare il gioco.
+
+---
+
+## Fase 4.8 — Undo/Redo: l'editor si può esplorare 🟢
+
+Fino a qui ogni azione distruttiva era **definitiva** — Elimina, "Rimuovi da tutte", ogni
+trascinamento del gizmo — e si sopravviveva solo perché il disco non veniva toccato: riaprire
+la scena era l'annulla del poveraccio. ⚠️ Ed è il motivo per cui questa fase viene **prima**
+del FileSystem scrivibile: quel pannello aggiunge "elimina file", e lì quella rete non c'è.
+
+### La decisione: grana fine, non snapshot
+
+*Presa dal proprietario fra due strade.* L'handoff dava lo snapshot a grana grossa per "quasi
+gratis, con quello che esiste" — riusare `PlayMode`, che serializza la scena in memoria.
+**Guardandolo da vicino non regge**, e non per costo:
+
+> `PlayMode.Stop` è `World.Clear()` + `Instantiate`. Usarlo come undo vuol dire che **annullare
+> la digitazione di un numero ricostruisce l'intera scena**: tutti gli id cambiano, i
+> `[RuntimeState]` spariscono e vengono ricreati, la selezione di un'entità senza nome si perde,
+> la scena sbatte. E la serializzazione **può fallire** — un undo che lancia è peggio di niente.
+
+- **Preso: command stack a grana fine.** Esatto, istantaneo, gli id restano quelli, non può
+  fallire. È anche ciò che la Fase 6 già prevedeva (*command pattern*)
+- ⚠️ **La regola che tiene insieme il disegno**: un comando si costruisce **attorno a
+  un'operazione già avvenuta**. Chi modifica continua a modificare come prima — l'Inspector
+  scrive nello storage, la Hierarchy chiama `EntityOperations` — e il comando fotografa il prima
+  e il dopo. Niente dispatcher da cui far passare tutto: quella strada ha **un solo modo di
+  rompersi**, dimenticare un punto, e il sintomo è una scena che si muove e uno stack che non lo
+  sa. Ne segue che `Redo` è idempotente e che `Push` non esegue niente
+- **Tre comandi, non cinque**: `EntityStateCommand` ("i componenti di questa entità sono passati
+  da così a così") copre campo dell'Inspector, gizmo, slot d'asset, aggiungi/rimuovi componente
+  **e riparentamento**; `EntityLifetimeCommand` copre creazione ed eliminazione **nello stesso
+  tipo** (sono la stessa frase letta al contrario); `CompositeCommand` tiene insieme ciò che per
+  l'utente è stato un clic solo. Uno per verbo sarebbe stato quattro modi di scrivere la stessa
+  coppia di fotografie — e quattro posti in cui sbagliarla
+- [x] **`World.RestoreEntity(id)`**: le entità tornano con **lo stesso id**. Ricrearle con uno
+  nuovo renderebbe l'annullamento una bugia — ogni riferimento resterebbe rotto (il `Parent` di
+  un figlio, la selezione, i comandi più vecchi) e si sarebbe rimesso in scena un **sosia**.
+  ⚠️ Non viola "gli id non si riusano": quella regola vieta di dare l'id di un'entità morta a una
+  **diversa**, qui è la stessa che torna. Lancia se l'id è vivo, che sarebbe l'aliasing esatto
+  che la regola esiste per impedire
+- [x] **Il confine del gesto**: un `DragFloat` riscrive il componente a **ogni frame**, quindi
+  senza un confine lo stack prenderebbe sessanta comandi al secondo — un annulla che disfa un
+  millimetro alla volta è peggio di nessun annulla. L'Inspector lo deduce da `IsAnyItemActive`
+  letto **prima** di disegnare (cioè riferito al frame precedente); il gizmo ce l'ha esplicito
+  (afferra/rilascia). ⚠️ Vale per **entrambe** le strade: non è un dettaglio della grana fine
+- [x] **La storia si butta quando il World è sostituito in blocco**: Play, Stop, Apri, Nuova.
+  ⚠️ Non è prudenza, è correttezza — dopo un `World.Clear` i comandi parlano di entità che non
+  esistono, e il loro Undo le farebbe **rinascere** dentro una scena a cui non appartengono
+- [x] Menu **Edit** con dentro **il nome** di ciò che si annulla ("Annulla sposta lamp-green"),
+  Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z. ⚠️ Le scorciatoie tacciono se `WantTextInput`: dentro un
+  `InputText` l'annulla è quello di ImGui, che disfa le **lettere** — rubargli il tasto vorrebbe
+  dire che sbagliare una lettera rinominando annulla qualcos'altro nella scena
+- [ ] *(fuori portata, per scelta)* **Il disco non è coperto**: un comando in memoria non può
+  resuscitare un file. Quando il FileSystem saprà cancellare servirà una rete diversa — il
+  Cestino di Windows, non lo stack
+
+### Il bug trovato mentre si costruiva
+
+⚠️⚠️ **`GetBoxed` ha due metà e ne era stata scritta una sola.** Il commento diceva "se il
+componente è uno struct, il boxing ne fa una copia" — vero, ma l'altra metà è che **se è una
+`class` si ottiene il riferimento**. `EntityOperations.Duplicate` copiava così, e il commento lì
+diceva *«i componenti sono struct (o piccole class di dati), quindi `GetBoxed` basta»*: la
+parentesi era proprio il caso in cui non bastava.
+
+**Misurato**: duplicando un'entità, originale e copia condividevano lo stesso
+`MeshRendererComponent` — dipingere di rosso la copia dipingeva anche l'originale
+(`ReferenceEquals` = true; lo struct di controllo restava indipendente, quindi è esattamente il
+caso `class`). Ora c'è `ComponentCopy.Shallow` (`MemberwiseClone` per reflection: prende anche i
+campi privati ed ereditati, che un giro di `GetFields` sbaglierebbe in silenzio), usata dalla
+duplicazione **e** dagli snapshot dell'undo — che avevano lo stesso problema in forma peggiore:
+un "prima" che è lo stesso oggetto del "dopo" non è una storia, è un alias.
+
+### Verificato
+
+Sequenza di **sei** azioni vere (crea, duplica, riparenta, modifica un componente, aggiungi un
+componente, elimina un sottoalbero), poi indietro tutto e avanti tutto, confrontando l'**impronta
+del World** (entità per id, componenti per tipo, campi per nome):
+
+| | esito |
+|---|---|
+| undo di tutto == stato iniziale | ✅ |
+| redo di tutto == stato finale | ✅ |
+| **controllo**: ripristino *senza rimuovere* i componenti comparsi | ❌ **come deve** |
+| l'entità eliminata torna con lo stesso id (3 → 3), e la successiva non collide (4) | ✅ |
+| componente `class` mutato in loco: il "prima" non è stato sovrascritto | ✅ |
+
+⚠️ Il controllo è la metà che conta: rimettere i componenti fotografati **senza togliere quelli
+comparsi nel frattempo** è l'errore facile, e l'undo di "aggiungi componente" sembrerebbe
+funzionare — i valori tornano indietro e il componente resta lì.
+
+**A video** (rig della Fase 4.7): riparentamento → **Ctrl+Z da tastiera** che lo disfa → menu
+Edit che mostra *"Annulla sposta lamp-green"* con *Rifai* spento → clic sulla voce che disfa →
+**Ctrl+Y** che rifà. ⚠️ Cade qui una convinzione della Fase 4.7bis (*«il rig non riesce a
+pilotare i tasti»*): i tasti passano, **col `lParam` giusto** — è la stessa trappola già pagata
+per il `WM_KEYUP` (il bit di transizione sta nell'HIWORD), applicata anche al KEYDOWN.
+
+**Milestone:** l'editor si può **esplorare**. Ogni azione si disfa, e il pannello Components non
+ha più bisogno di un tooltip che avverte. 🎉
+
+---
+
+## Fase 4.85 — Gli asset: dove sono, e come si guardano 🟢🟡
+
+### Il bug che non era dove sembrava
+
+*«Se copio un file in assets da Windows, in gioco non si aggiorna»*. Sembrava un refresh
+mancante nel pannello, e il pannello non aveva colpa: rilegge il disco **a ogni frame**.
+Guardava un'altra cartella.
+
+> Il csproj copia `assets/**` nell'output (`CopyToOutputDirectory`), e sia l'`AssetManager` sia
+> il pannello risolvevano `assets` da `AppContext.BaseDirectory`. L'eseguibile leggeva una
+> **copia** fatta al momento della build.
+
+Due conseguenze, e la seconda è peggiore: un file nuovo non si vedeva (e **non bastava
+riavviare** — serviva ricompilare), e soprattutto **il Salva dell'editor scriveva dentro
+`bin/`**. Il lavoro d'autore finiva nell'output di compilazione: perso alla prima pulizia, e
+invisibile a git nel frattempo.
+
+- [x] **`ContentRoot`** (`src/gEngine/Core/ContentRoot.cs`) — regola di Unity: *la cartella di
+  progetto **è** la cartella asset*. Risale dall'eseguibile cercando una cartella con **sia** un
+  `.csproj` **sia** una `assets/`; se non la trova (gioco spedito) resta accanto all'exe
+  - ⚠️ Servono **entrambi** i segni: solo il `.csproj` aggancerebbe un progetto qualunque
+    risalendo, solo `assets/` aggancerebbe la copia nell'output — cioè proprio quella da cui si
+    sta scappando
+  - Verificato in modo discriminante: file creato **solo** nel sorgente, **nessuna build** in
+    mezzo, eseguibile lanciato direttamente → compare nel pannello. E il log conferma i
+    caricamenti da `samples/Sandbox/assets/`
+
+### Il pannello File system: da elenco a griglia
+
+*Richiesta del proprietario: «gli item allineabili anche in orizzontale, con anteprime — così
+è orribile da vedere e da usare».*
+
+- [x] **Griglia di default**, con interruttore per tornare alla lista e slider della dimensione.
+  Un elenco di nomi è la forma giusta per **leggere** dei file, non per **riconoscere** degli
+  asset: una texture si cerca guardandola
+- [x] **Anteprime vere per le immagini**, riquadro colorato per genere (con l'estensione sopra)
+  per tutto il resto
+  - ⚠️ **Le miniature si riducono PRIMA di salire sulla GPU** (`LoadTextureThumbnail`:
+    `LoadImage` → `ImageResize` → `LoadTextureFromImage`). Caricare intero e disegnare piccolo
+    sarebbe stato una riga in meno e gigabyte di memoria video: `SummonersRift/Textures` ha
+    **405** file `.dds`
+  - ⚠️ **Pigre, poche per frame (2), buttate cambiando cartella.** Tre difese contro tre modi
+    diversi di rovinare l'editor: caricare una cartella intera all'apertura, bloccare la
+    finestra per secondi, non restituire mai la memoria video. Anche i **fallimenti** vanno in
+    cache, o un file illeggibile verrebbe riletto a ogni frame per sempre
+  - ⚠️ **Niente anteprime dei modelli**, e non è un rinvio pigro: generarle significa
+    **caricare** il modello, e `SummonersRift.obj` è enorme. Vorrebbe caricamento pigro con
+    budget e una cache su disco — è un lavoro a sé
+- [x] **Breadcrumb cliccabile** al posto del solo `..`; nome troncato con tooltip (genere, peso,
+  cosa farci)
+- ⚠️ **Le icone sono disegnate col draw list**, non con un font di icone: ProggyClean copre solo
+  Latin-1 e qualunque glifo fuori da lì esce `?`. Un rettangolo colorato con dentro `PNG` dice
+  il genere meglio di ogni carattere disponibile — finché il font non cambia (punto a sé)
+- ⚠️ **Fuori-di-uno trovato guardando uno screenshot**: il ritorno a capo contava la posizione
+  *dopo* aver incrementato, quindi la **prima riga** aveva un riquadro in meno di tutte le altre
+  e la seconda partiva più a sinistra. Rileggendo il codice non si vedeva; nell'immagine sì
+
+### Trovato di sponda: raylib non decodifica i JPEG — e ora sì 🟢
+
+Un `.jpeg` valido (magic `FFD8FFE0`, 88 KB) resta un riquadro. Nel log:
+`FILEIO: File loaded successfully` seguito da `WARNING: IMAGE: Failed to load image data` — i
+byte si leggono, il decoder no. **Questa build di raylib-cs non ha il supporto JPEG.**
+
+Escluse le cause banali prima di intervenire: il file è **baseline** (non progressivo, che stb
+non legge), **YCbCr a 3 componenti** (non CMYK), 8 bit, 1024x1024. Un JPEG del tutto ordinario —
+quindi è il nativo a essere compilato senza `SUPPORT_FILEFORMAT_JPG`.
+
+Non riguardava solo le anteprime: una texture `.jpg` **non si caricava affatto**, e un modello
+che la referenzia veniva disegnato **bianco** (albedo = la texture di default 1x1). È la causa
+vera del "gli obj restano bianchi" da cui era partita la sessione.
+
+- [x] **Ricaduta su `StbImageSharp`** (MIT) in `RayLibAssetBackend`: la porta in C# dello
+  **stesso** `stb_image` che raylib usa dentro — non un secondo modo di leggere le immagini, ma
+  un pezzo spento nel nativo che si riaccende. Si prova **prima** raylib e si ricade solo se
+  fallisce: i formati che il nativo gestisce (comprese le `.dds` compresse, che stb non tocca)
+  restano sulla strada veloce, e il giorno che la native avrà il JPEG questa ricaduta smetterà
+  da sé di essere usata
+  - ⚠️ La memoria dei pixel si chiede a **`Raylib.MemAlloc`** e non a `Marshal`: quell'`Image`
+    finisce in mano a raylib, e `UnloadImage` la libera col **suo** allocatore. Mescolare i due
+    corrompe l'heap in un punto che non c'entra niente
+- [x] **`RepairFailedAlbedo`**, e senza questo il resto non sarebbe servito a niente nel caso
+  vero: le texture di un **modello** non passano da noi — le apre il loader di raylib mentre
+  legge il `.mtl`. Quindi un modello con albedo jpg restava bianco *anche col decoder in casa*.
+  Dopo `LoadModel` si cercano i material la cui albedo è la texture di default (fallita), si
+  ripesca il `map_Kd` dal `.mtl` e si ricarica con la ricaduta
+  - ⚠️ **Solo OBJ**: per glTF servirebbe leggere il json (o il chunk binario di un `.glb`) e
+    seguire material→texture→image. È un parser, non una riparazione — un glTF con albedo jpg
+    resta bianco, e il commento nel codice dice perché
+  - ⚠️ Si patcha **solo se il numero di material combacia** con quello dei `newmtl`: si assume
+    che raylib crei i material nell'ordine del file, e se i conti non tornano l'assunzione non
+    regge. Meglio un modello bianco che uno con le texture scambiate, che sembrerebbe un errore
+    d'autore
+
+**Verificato sul caso reale**, non per costruzione: messo un JPEG dove il `.mtl` di
+`FuturisticGirl.obj` lo cerca e il modello in scena, il log mostra
+`WARNING: IMAGE: Failed to load image data` (raylib) seguito **dalla riga dopo** da
+`TEXTURE: Texture loaded successfully (1024x1024 | R8G8B8A8)` — la ricaduta — e a video il
+modello è **texturizzato** invece che bianco.
 
 ---
 

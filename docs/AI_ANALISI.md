@@ -37,8 +37,9 @@ Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo 
   Non "ri-aggiustarlo".
 - **`TransformGizmo` NON ha il bug della gerarchia**: `ToParentSpace` divide già per il mondo
   del genitore. (Un commento nel codice diceva il contrario ed era falso.)
-- ⚠️ **Non fidarti dei commenti**: in questo repo ne sono stati trovati **due** che mentivano.
-  Verifica il codice.
+- ⚠️ **Non fidarti dei commenti**: in questo repo ne sono stati trovati **tre** che mentivano —
+  e il terzo (`GetBoxed` "dà una copia", vero solo a metà) non mentiva del tutto, il che è
+  peggio: era **giusto sul caso che si guardava** e sbagliato sull'altro. Verifica il codice.
 - ⚠️ **Non documentare API a memoria**: è già successo di scrivere una firma inesistente in
   `USAGE.md`. Leggi il sorgente.
 - ⚠️ ImGui identifica le finestre **per titolo**: due `Begin` con lo stesso nome sono lo stesso
@@ -47,6 +48,11 @@ Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo 
   default `FirstUseEver`: per provare il primo avvio, cancellalo.
 - ⚠️ Gotcha struct/copia: `TryGetComponent`/`GetBoxed` danno una **copia**. Serve il write-back
   (`AddComponent`/`SetBoxed`). Ha già morso **cinque** volte.
+- ⚠️⚠️ **E ha una seconda metà, che è costata un bug vero** (Fase 4.8): quella frase vale per gli
+  **struct**. Se il componente è una **class** (`MeshRendererComponent`) `GetBoxed` dà **il
+  riferimento** — chi lo passa a un'altra entità le lega, chi lo tiene da parte come "prima" si
+  ritrova un alias che la modifica successiva sovrascrive. Per una copia indipendente:
+  `ComponentCopy.Shallow`.
 - ⚠️⚠️ **`BeginPopupContextItem()` dopo un `Text` fa `IM_ASSERT`** (un `Text` non ha id, e
   senza argomenti il popup usa l'id dell'ultimo item). Su Windows l'assert è una **dialog
   modale nativa**: il gioco non crasha e non logga, si **pianta al primo frame** e sembra un
@@ -74,8 +80,19 @@ Il buco "i popup non si possono cliccare" **è chiuso**. Come si fa:
 
 ⚠️ Limiti del rig: il **doppio clic** sintetico non si riesce a riprodurre (rlImGui campiona
 il mouse **a livello, una volta per frame**), e un trascinamento che parte da un punto vuoto
-**sposta la finestra ImGui** invece dell'item. Per provare il drag&drop si è fatto partire
-temporaneamente il `FileSystemPanel` dentro la cartella del modello.
+**sposta la finestra ImGui** invece dell'item.
+
+⚠️ Due cose imparate dopo, **che smentiscono quanto scritto altrove**:
+- **I tasti sintetici passano**, Ctrl+Z compreso: serve il `lParam` giusto **anche sul KEYDOWN**
+  (scancode nell'HIWORD), non solo sul KEYUP. La Fase 4.7bis dava F1 per non pilotabile.
+- Lo stesso campionamento a livello morde il **trascinamento**: se la pressione e i primi
+  spostamenti cadono nello stesso frame, ImGui registra la pressione sulla posizione **finale** —
+  si afferra la riga sbagliata e sembra che il drag&drop non funzioni. La pressione vuole un
+  frame tutto suo (~900ms di margine nel rig).
+
+Per provare il drag&drop **degli asset** si è fatto partire temporaneamente il `FileSystemPanel`
+dentro la cartella del modello. Quello **fra entità** (riparentamento) non ha bisogno del
+trucco: sorgente e bersaglio sono due righe della stessa Hierarchy.
 
 ## Da chiudere PRIMA del piano (buchi, non comodità)
 
@@ -83,7 +100,7 @@ Quattro cose trovate guardando il codice a fine sessione. Non sono desiderata: s
 cui l'editor **promette** qualcosa che non fa, o in cui una cosa nuova ha reso raggiungibile un
 debito vecchio. In ordine.
 
-### A. Il riparentamento non esiste — e cinque posti dicono che c'è 🔴
+### A. Il riparentamento non esiste — e cinque posti dicono che c'è ✅ CHIUSO
 `ParentComponent` non è esposto nell'Inspector **apposta**, col commento *«il posto dove si
 riparenta è l'albero della Hierarchy»*. `SceneComponentRegistry` non gli dà un default perché
 *«ci si riparenta dalla Hierarchy»*. E **due tooltip mostrati all'utente** ripetono la frase.
@@ -108,7 +125,15 @@ payload diverso (un `Entity` invece di un path).
   l'orientamento con genitore a **scala non uniforme** (vedi il debito noto). Decidere se
   "mantieni la posa di mondo" è la semantica giusta, o se si riparenta e basta.
 
-### B. Undo — e va fatto PRIMA del punto 2 del piano 🔴
+**Fatto** (`EntityDragDrop` + `EntityOperations.Reparent`/`CanReparent`, Hierarchy). Tutte e tre
+le ⚠️ qui sopra sono state chiuse: i cicli sono rifiutati **prima** che il bersaglio si illumini,
+"fuori" **toglie** il componente, e il proprietario ha deciso per **mantieni la posa di mondo**.
+Il razionale, i numeri e la trappola del rig stanno in `ROADMAP.md` Fase 4 — **leggili prima di
+toccare queste cose**. ⚠️ Il debito ereditato (genitore a scala non uniforme → orientamento
+sbagliato in silenzio) ora è **molto più raggiungibile**: prima i genitori vivi avevano scala
+uniforme, adesso ci si trascina a mano.
+
+### B. Undo — e va fatto PRIMA del punto 2 del piano ✅ CHIUSO
 Non esiste da nessuna parte. Oggi ogni azione distruttiva è definitiva: Elimina, "Rimuovi da
 tutte", Svuota lo slot, ogni trascinamento del gizmo. Si sopravvive perché il disco non è
 toccato — `File > Open Scene` è l'undo del poveraccio.
@@ -120,6 +145,14 @@ Il materiale c'è già: **lo snapshot del `PlayMode` è la serializzazione in me
 grana grossa (snapshot prima di ogni comando, stack di N) è quasi gratis con quello che esiste;
 uno a grana fine (command stack) è più lavoro ma è la cosa giusta a lungo termine. ⚠️ È una
 decisione da prendere **una volta**, prima di scriverne metà.
+
+**Fatto: command stack a grana fine** (`src/gEngine.Editor/Undo/`), deciso dal proprietario.
+⚠️ Lo snapshot a grana grossa **non era "quasi gratis"**: `PlayMode.Stop` è `World.Clear` +
+`Instantiate`, quindi annullare la digitazione di un numero avrebbe ricostruito la scena — id
+nuovi, `[RuntimeState]` persi, selezione persa, e una serializzazione che **può fallire**.
+Razionale, comandi e verifiche in `ROADMAP.md` Fase 4.8 — **leggila prima di toccare queste
+cose**. ⚠️ Il disco resta scoperto **per scelta**: quando il FileSystem saprà cancellare servirà
+il Cestino, non lo stack (un comando in memoria non resuscita un file).
 
 ### C. Un progetto di test, con UN test: il round-trip di serializzazione 🟡
 La Fase 0 lo prevedeva e non c'è mai stato. Non serve testare tutto: serve **World → Scene →
@@ -153,7 +186,12 @@ Fase 0 e ancora lì: *«`GameLoop` istanzia `_logger` ma non lo passa mai a `IGa
 prima di avere una console serve che il logger sia raggiungibile, e le `Resources` sono il
 posto (`resources.Add<ILogger>(...)`).
 
-**2. FileSystem completo.** Creare/rinominare/eliminare davvero + **creare oggetti dei tipi
+**2. FileSystem completo.** *(l'undo che lo bloccava ora c'è — ma copre il World, non il disco:
+per "elimina file" serve il Cestino di Windows, deciso col proprietario.)*
+⚠️ **Metà è fatta** (Fase 4.85): il pannello è a griglia con anteprime, e `ContentRoot` ha
+chiuso il bug per cui l'editor guardava la copia degli asset in `bin/` — quindi ora un file
+copiato da Explorer si vede subito **e il Salva scrive nel file versionato**. Restano le
+mutazioni su disco (creare/rinominare/eliminare) e il cestino. Creare/rinominare/eliminare davvero + **creare oggetti dei tipi
 basilari direttamente da lì**. ⚠️ La parte "crea oggetti" incrocia il `SceneComponentRegistry`:
 un "cubo" è un'entità con Transform + MeshRenderer coi default della Fase 4.7 — cioè
 `EntityOperations.Create` + due `TryCreateDefault`, non codice nuovo. ⚠️ La parte "elimina" è
@@ -277,7 +315,9 @@ ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe.
 
 - **`SetWorldPose` non onora l'orientamento con genitore a scala NON uniforme** (~90° di errore
   mediano) e **non lo segnala**. Con shear il quaternione locale che darebbe quell'orientamento
-  non esiste. Oggi non morde (camere root).
+  non esiste. ⚠️ **Non è più vero che "oggi non morde"**: da quando si riparenta trascinando
+  (punto A), qualunque entità può finire sotto un genitore schiacciato — misurato su quel
+  percorso: `1-|dot|` 0.47 mediano (~117°), posizione esatta.
 - **La traceability è metadata scritta a mano**: può mentire. `ObservedComponents` è opzionale,
   quindi "sezione vuota" non prova che nessuno legga l'entità. Cura vera = derivare i match
   dalle query reali (refactor grosso, non fatto).
@@ -299,12 +339,20 @@ ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe.
   factory dei suoi system.
 - **Ripristina un system lo rimette in fondo alla sua fase**, non dov'era, e richiama
   `OnCreate` sulla stessa istanza (oggi tutti vuoti, quindi non si vede).
-- **Niente undo, da nessuna parte.** La voce che se ne accorge di più è "Rimuovi da tutte" nel
-  pannello Components.
+- ~~Niente undo, da nessuna parte.~~ **Fatto** (Fase 4.8). ⚠️ Resta scoperto il **disco**: il
+  FileSystemPanel non ha ancora un cestino, e lo stack non può coprirlo.
 - **Lo slot degli asset non conosce `Kind`**: un modello su un `MeshRenderer` con `Kind = Cube`
   resta assegnato e invisibile. Detto nel tooltip; vedi Fase 4.7 per perché non lo si aggiusta.
+- ~~raylib non decodifica i JPEG~~ **risolto** con la ricaduta su `StbImageSharp` + la
+  riparazione delle albedo dei modelli (Fase 4.85). ⚠️ Resta scoperto **glTF**: lì il path della
+  texture sta nel json (o nel chunk binario del `.glb`) e ripescarlo è un parser, non una
+  riparazione — un `.gltf`/`.glb` con albedo jpg viene ancora bianco.
+- **Anteprime dei modelli**: non ci sono, e non è un rinvio pigro — generarle vuol dire
+  caricare il modello (SummonersRift è enorme). Serve caricamento pigro con budget + cache su
+  disco.
 - Nessun progetto di test (Fase 0). Le verifiche numeriche sono state fatte con app scratch
-  temporanee e buttate.
+  temporanee e buttate. ⚠️ Ora ce n'è **di più** da coprire: il round-trip di undo/redo è
+  esattamente il genere di cosa che regge tre pezzi e che nessuno ricontrolla. Vedi il punto C.
 
 ## Come si lavora qui (standard del progetto, non opzionali)
 
