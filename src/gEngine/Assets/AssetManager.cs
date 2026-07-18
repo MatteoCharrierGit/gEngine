@@ -34,6 +34,28 @@ public class AssetManager
         return handle;
     }
 
+    /// <summary>
+    /// Un'anteprima: l'immagine ridotta a <paramref name="maxSize"/> pixel sul lato lungo.
+    ///
+    /// ⚠️ Tre differenze volute rispetto agli altri <c>Load*</c>, tutte per lo stesso motivo —
+    /// questa non è una risorsa del gioco:
+    /// <list type="bullet">
+    ///   <item>prende un path <b>assoluto</b>: si sfoglia il disco, non la cartella asset;</item>
+    ///   <item><b>non è in cache qui</b>: la cache è di chi sfoglia, che sa quando ha smesso di
+    ///   guardare una cartella. Metterla nel dizionario degli asset vorrebbe dire che le
+    ///   miniatura vivono quanto il gioco;</item>
+    ///   <item>si libera una alla volta con <see cref="UnloadTexture"/>, invece di aspettare
+    ///   <c>UnloadAll</c>.</item>
+    /// </list>
+    /// </summary>
+    public TextureHandle LoadThumbnail(string absolutePath, int maxSize) =>
+        _backend.LoadTextureThumbnail(absolutePath, maxSize);
+
+    public void UnloadTexture(TextureHandle handle) => _backend.UnloadTexture(handle);
+
+    /// <summary>L'id GPU, per disegnare la texture in ImGui. Vedi <see cref="IAssetBackend.GetTextureId"/>.</summary>
+    public nint GetTextureId(TextureHandle handle) => _backend.GetTextureId(handle);
+
     public SoundHandle LoadSound(string relPath)
     {
         var fullPath = Path.Combine(_rootDir, relPath);
