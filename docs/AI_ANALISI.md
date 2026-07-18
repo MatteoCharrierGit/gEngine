@@ -185,7 +185,7 @@ Razionale, comandi e verifiche in `ROADMAP.md` Fase 4.8 — **leggila prima di t
 cose**. ⚠️ Il disco resta scoperto **per scelta**: quando il FileSystem saprà cancellare servirà
 il Cestino, non lo stack (un comando in memoria non resuscita un file).
 
-### C. Un progetto di test, con UN test: il round-trip di serializzazione 🟡
+### C. Un progetto di test, con UN test: il round-trip di serializzazione ✅ CHIUSO
 La Fase 0 lo prevedeva e non c'è mai stato. Non serve testare tutto: serve **World → Scene →
 World, e confronta**.
 
@@ -193,6 +193,16 @@ Perché proprio quello: quel codice adesso regge **tre** cose insieme — il Sal
 (lo snapshot *è* il serializer) e, domani, l'hot-reload (snapshot → ricompila → reistanzia).
 Tre pilastri su un pezzo che nessuno controlla e che finora è stato verificato **guardando dei
 cubi cadere**. È mezz'ora e copre tutto e tre.
+
+**Fatto** (`tests/gEngine.Tests`, xUnit, 13 test verdi). ⚠️ **Ma la stima "mezz'ora e copre
+tutto e tre" era sbagliata su una cosa, e va saputa prima di scrivere il prossimo test:**
+il round-trip **da solo non verifica niente**. Sabotato il writer del `MeshRenderer` perché non
+scrivesse più `ModelPath` — cioè facendo perdere il modello a ogni salvataggio — **i test
+restavano tutti verdi**: il giro è cieco a una perdita *simmetrica* (non scritto → non
+ricaricato → non riscritto → le due scene coincidono). Serve la seconda gamba, che verifica
+cosa il file **contiene**. Razionale, i tre sabotaggi provati e le trappole del confronto (per
+indice e non per nome; chiavi JSON canonicalizzate) stanno in `ROADMAP.md` **Fase 4.86** —
+**leggila prima di aggiungere test qui**.
 
 ### D. `ISystem` non ha un `OnDestroy` 🟡
 Era un debito teorico finché nessuno toglieva system. Il pannello Systems (Fase 4.7) li fa
@@ -383,9 +393,11 @@ ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe.
 - **Anteprime dei modelli**: non ci sono, e non è un rinvio pigro — generarle vuol dire
   caricare il modello (SummonersRift è enorme). Serve caricamento pigro con budget + cache su
   disco.
-- Nessun progetto di test (Fase 0). Le verifiche numeriche sono state fatte con app scratch
-  temporanee e buttate. ⚠️ Ora ce n'è **di più** da coprire: il round-trip di undo/redo è
-  esattamente il genere di cosa che regge tre pezzi e che nessuno ricontrolla. Vedi il punto C.
+- ~~Nessun progetto di test (Fase 0).~~ **C'è** (`tests/gEngine.Tests`, Fase 4.86), ma copre
+  **solo la serializzazione**. Restano scoperti: l'**ECS** (`CreateEntity`, `Query`, e
+  soprattutto il gotcha struct/copia, che ha già morso cinque volte) e l'**undo/redo**, che è
+  l'altro pezzo che regge tre cose e che nessuno ricontrolla. Le verifiche numeriche vecchie
+  restano fatte con app scratch buttate: non c'è niente che le rieseguirebbe.
 
 ## Come si lavora qui (standard del progetto, non opzionali)
 

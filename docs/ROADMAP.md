@@ -9,14 +9,18 @@ Piccole cose che userai ovunque, meglio averle prima.
   - [x] Timestamp e categoria/tag per messaggio
   - [ ] Punto d'accesso comodo dall'engine — `GameLoop` istanzia `_logger` ma non lo passa mai a `IGame`/ai system; da esporre (es. via `Init`) prima di poterlo usare fuori da `GameLoop`
 - [ ] **Unit test** sull'ECS (primo contatto col testing in C#)
-  - [ ] Progetto di test (`tests/gEngine.Tests`, xUnit)
+  - [x] Progetto di test (`tests/gEngine.Tests`, xUnit) — creato in **Fase 4.86**, che però copre
+    la **serializzazione**, non l'ECS: si è testato per primo il pezzo che ne regge tre (Salva,
+    Play/Stop, hot-reload), non quello elencato qui
   - [ ] Test su `CreateEntity`, `AddComponent`/`GetComponent`, `Query<..>`
-  - [ ] Test sul gotcha struct/copia (mutazione + write-back)
+  - [ ] Test sul gotcha struct/copia (mutazione + write-back) — ⚠️ ha già morso **cinque** volte,
+    ed è la voce con il rapporto costo/danno peggiore di tutta la lista
 - [x] **Adozione math**: standardizzare su `System.Numerics`
   - [ ] Decidere convenzioni: sistema **right-handed, Y-up** (come Raylib) — implicito nell'uso attuale, non ancora scritto da nessuna parte
   - [ ] Note su unità (1 unità = 1 metro?) e scala di riferimento
 
-**Milestone:** log leggibile a runtime + test verdi. *(log ✅, test ancora da scrivere)*
+**Milestone:** log leggibile a runtime + test verdi. *(log ✅; i test esistono e sono verdi da
+Fase 4.86, ma sulla serializzazione — l'ECS di questa fase è ancora scoperto)*
 
 ---
 
@@ -1331,6 +1335,80 @@ vera del "gli obj restano bianchi" da cui era partita la sessione.
 `WARNING: IMAGE: Failed to load image data` (raylib) seguito **dalla riga dopo** da
 `TEXTURE: Texture loaded successfully (1024x1024 | R8G8B8A8)` — la ricaduta — e a video il
 modello è **texturizzato** invece che bianco.
+
+---
+
+## Fase 4.86 — Il primo test, e cosa ha detto sui test 🟢
+
+La Fase 0 prevedeva `tests/gEngine.Tests` (xUnit) e non è mai esistito: le verifiche numeriche
+del progetto sono state fatte con app scratch temporanee e buttate. Il primo test permanente
+copre il **round-trip di serializzazione** — `World → Scene → World`, e confronta.
+
+Perché proprio quello, fra tutto ciò che non è coperto: quel codice regge **tre** cose insieme.
+Il Salva dell'editor, il Play/Stop (lo snapshot **è** il serializer) e, domani, l'hot-reload
+degli script (snapshot → ricompila → reistanzia). Finora è stato verificato guardando dei cubi
+cadere.
+
+### ⚠️⚠️ Il round-trip da solo NON verifica niente. Misurato, non temuto.
+
+Scritto il giro e visto verde, si è **sabotato il serializer** per controllare che il test
+mordesse — è lo standard del progetto (*«una verifica che passa anche con l'implementazione
+sbagliata non sta verificando niente»*). Il primo sabotaggio è stato togliere la scrittura di
+`ModelPath` dal writer del `MeshRenderer`, cioè **far perdere il modello a ogni salvataggio**.
+
+**I test restavano tutti verdi.**
+
+Il motivo, e vale per qualunque round-trip: il giro è cieco a una perdita **simmetrica**. Se il
+writer non scrive `ModelPath`, la prima scena non ce l'ha → il World rientrante non carica
+nessun modello → la seconda scena non ce l'ha uguale. Le due coincidono, il confronto è
+soddisfatto, e il dato è sparito. Lo stesso vale per `Parent` e per ogni altro campo
+asimmetrico.
+
+Da qui la forma definitiva, che è **a due gambe** e non si può ridurre a una:
+- `UnGiroCompleto_NonPerdeNienteDiCioCheEDatoDAutore` verifica la **stabilità** (il giro è un
+  punto fisso);
+- `LaScenaScritta_ContieneDavveroIDatiDAutore` verifica la **fedeltà** (nel file c'è
+  `ModelPath` e non l'handle, c'è `"Giocatore"` e non un id, il nome è un campo e non un
+  componente).
+
+Con la seconda gamba, il sabotaggio del `ModelPath` fallisce. Provati anche: `Parent` scritto
+per **id** invece che per nome (4 test rossi) e `[RuntimeState]` **non** saltato (10 rossi).
+
+### Cosa c'è nei test
+
+- [x] **`tests/gEngine.Tests`** (xUnit, net10.0), nella soluzione sotto `/tests/`
+- [x] **`FakeAssetBackend`** — il round-trip del `MeshRenderer` passa dall'`AssetManager`
+  (path→handle e ritorno), quindi non è testabile senza. Col backend raylib servirebbero una
+  finestra aperta e i file veri: due dipendenze estranee a ciò che si verifica
+- [x] **`SceneComparison`** — elenca le differenze invece di dire sì/no, perché un round-trip
+  rotto deve dire **quale campo** non è tornato
+  - ⚠️ Confronto **per indice**, non per nome: l'ordine delle entità è ciò che decide il diff in
+    git di una scena versionata. Un giro che conserva i dati ma rimescola le righe è una
+    regressione, e per nome non si vedrebbe
+  - ⚠️ Le chiavi degli oggetti JSON si **canonicalizzano** (ordinate, ricorsivamente) prima di
+    confrontare, e non è lassismo: `SceneSerializer` scrive scorrendo `World.ComponentStorages`,
+    cioè nell'ordine in cui gli storage sono **nati** — che nel World costruito a mano è
+    l'ordine degli `AddComponent` e nel World reistanziato è quello delle chiavi nel file. Non
+    coincidono e non devono. Gli **array** invece non si riordinano: lì l'ordine è contenuto
+  - *(Effetto reale, non difetto del test: il primo salvataggio di una scena scritta a mano può
+    riordinare i componenti dentro un'entità. Cambia il diff, non il contenuto — è la stessa
+    nota già scritta per i `_comment`.)*
+- [x] **Sei guasti** in `[Theory]` che il confronto **deve** vedere: un float spostato di un
+  millesimo, un enum, un bool, un riferimento riappeso, un componente sparito, **due entità
+  scambiate di posto** (l'ultimo è quello che una comparazione per nome lascerebbe passare)
+- [x] Il fixture ha **un caso per ogni asimmetria** del formato — `Parent`, `ModelPath`, il nome
+  come campo, `[RuntimeState]` — più **un'entità senza nome e senza componenti**, che è il caso
+  degenere e quello che si dimentica
+- [x] Coperti anche: il giro **attraverso il file** su disco (Save + Load: lì i `JsonElement`
+  vengono riscritti e riparsati davvero), i `_comment` che sopravvivono al salvataggio **e** il
+  loro rovescio dichiarato (senza `source` si perdono — è il motivo per cui quel parametro
+  esiste), e il genitore senza nome che **fa fallire il salvataggio** invece di scrivere un file
+  che si ricarica monco
+
+### Cosa NON copre, per non farlo credere
+
+L'ECS (`CreateEntity`, `Query`, il gotcha struct/copia) resta scoperto, e resta scoperto l'undo
+— che è l'altro pezzo che regge tre cose e che nessuno ricontrolla. Restano voci di Fase 0.
 
 ---
 

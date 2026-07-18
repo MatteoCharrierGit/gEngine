@@ -36,6 +36,21 @@ gEngine/
 dotnet run --project samples/Sandbox
 ```
 
+> I **modelli e l'audio non sono versionati** (`assets/models/`, `assets/audio/`): sono
+> centinaia di MB non redistribuibili. Un clone pulito parte, ma la scena demo non ha il suo
+> modello e non c'è musica — raylib su file mancante logga un WARNING e prosegue, non lancia.
+> Le scene e gli script sotto `assets/` invece **ci sono**: gli script sono sorgenti compilati
+> a runtime, non asset.
+
+## Test
+
+```bash
+dotnet test tests/gEngine.Tests
+```
+
+Coprono il round-trip di serializzazione (`World → Scene → World`), che è il pezzo su cui
+poggiano il Salva dell'editor, il Play/Stop e — domani — il ricaricamento a caldo degli script.
+
 ## Usare l'engine
 
 Un gioco implementa `IGame` e viene passato al `GameLoop`:

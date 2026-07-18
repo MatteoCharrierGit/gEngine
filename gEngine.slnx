@@ -6,4 +6,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/Sandbox/Sandbox.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/gEngine.Tests/gEngine.Tests.csproj" />
+  </Folder>
 </Solution>
