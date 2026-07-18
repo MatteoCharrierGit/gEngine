@@ -12,11 +12,21 @@ solo in un worktree separato).
 Build: `dotnet build gEngine.slnx --nologo -v q --no-incremental` → **0 errori, 0 warning**.
 Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo chiude).
 
-⚠️ **Fuori da git**, e non per dimenticanza: `assets/models/SummonersRift/` (506 MB) e
-`uploads_files_7216568_FuturisticGirl.obj` (87 MB) sono ignorati *di fatto* (mai aggiunti)
-contro un repo da 30 MB — decisione del proprietario ancora da prendere fra .gitignore e Git
-LFS. I loro `.mtl` **riparati** (path assoluti di un'altra macchina → path relativi veri) vivono
-quindi solo su disco: gli originali sono accanto come `.mtl.orig`.
+⚠️ **I binari degli asset sono fuori da git** — decisione presa dal proprietario, niente Git
+LFS. `.gitignore` esclude `assets/models/` e `assets/audio/`; i 29 MB che erano già tracciati
+(`gwen.glb`, `little_witch_academia/`, l'mp3) sono stati tolti dall'indice con `git rm --cached`
+e **restano su disco**. Restano tracciati apposta `assets/scenes/` (i dati di scena) e
+`assets/scripts/`, che **non sono asset ma sorgenti**: dalla Fase 4.9 i system del Sandbox sono
+usciti dal `.csproj` e vivono lì.
+- ⚠️ `git rm --cached` **non rimpicciolisce il repo**: la storia passata contiene ancora quei
+  blob. Per recuperare lo spazio servirebbe riscrivere la storia — non fatto, non deciso.
+- ⚠️ **Un clone pulito parte degradato, e va detto a chi lo fa**: `demo.json` cita
+  `models/little_witch_academia/scene.gltf` e `SandboxGame` carica
+  `audio/Before_the_Light_Fades.mp3`. raylib su file mancante **non lancia** — logga un WARNING
+  e restituisce un handle vuoto: si vede una scena senza modello e si sente silenzio, non un
+  crash. Comodo, ma è anche il modo in cui un asset perso passa inosservato.
+- I `.mtl` **riparati** dei modelli pesanti (path assoluti di un'altra macchina → path relativi
+  veri) vivono quindi solo su disco: gli originali sono accanto come `.mtl.orig`.
 
 ### Fatto nelle sessioni precedenti
 
