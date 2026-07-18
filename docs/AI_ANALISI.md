@@ -6,11 +6,15 @@
 
 ## Dove siamo
 
-Lavoro su branch `feat/editor-mvp`. ⚠️ Fino alla sessione dell'undo il lavoro stava **tutto nel
-working tree senza commit**; ora è committato (cinque commit, ognuno verificato che compili da
-solo in un worktree separato).
+Lavoro su branch `feat/editor-mvp`, tutto committato.
 Build: `dotnet build gEngine.slnx --nologo -v q --no-incremental` → **0 errori, 0 warning**.
+Test: `dotnet test tests/gEngine.Tests` → **25 verdi**.
 Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo chiude).
+
+**I quattro buchi da chiudere prima del piano sono chiusi tutti e quattro.** La prossima cosa è
+il **punto 2 del piano** (FileSystem completo), che è a metà: mancano le mutazioni su disco
+(creare/rinominare/eliminare), il **Cestino di Windows** che deve fare da rete sotto "elimina"
+(l'undo copre il World, non il disco), e "crea oggetti dei tipi basilari" da lì.
 
 ⚠️ **I binari degli asset sono fuori da git** — decisione presa dal proprietario, niente Git
 LFS. `.gitignore` esclude `assets/models/` e `assets/audio/`; i 29 MB che erano già tracciati
@@ -47,7 +51,15 @@ usciti dal `.csproj` e vivono lì.
   scena non è serializzabile non si parte: fallendo al Play si perde un clic, fallendo allo
   Stop si perde il lavoro). Con questo **la Fase 4 è chiusa**.
 
-### Fatto in QUESTA sessione (i cinque commit)
+### Fatto nell'ultima sessione (tre commit)
+
+1. **I binari degli asset fuori da git** (vedi il riquadro qui sopra).
+2. **Il primo progetto di test** (buco C) — `tests/gEngine.Tests`. ⚠️ Da lì è uscita la cosa
+   più importante della sessione: **il round-trip da solo non verifica niente**. Vedi il punto C.
+3. **`ISystem.OnDestroy`** (buco D), e la scoperta che il danno era peggio di come lo
+   raccontava il tooltip. Vedi il punto D.
+
+### Fatto nella sessione precedente (i cinque commit)
 
 1. **`ContentRoot`** — l'editor leggeva la *copia* degli asset dentro `bin/`. Quindi un file
    nuovo non si vedeva (e non bastava riavviare: serviva ricompilare) e **il Salva scriveva in
