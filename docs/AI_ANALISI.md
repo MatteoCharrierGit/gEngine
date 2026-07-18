@@ -6,9 +6,17 @@
 
 ## Dove siamo
 
-Lavoro su branch `feat/editor-mvp`, **tutto nel working tree, nessun commit**.
+Lavoro su branch `feat/editor-mvp`. ⚠️ Fino alla sessione dell'undo il lavoro stava **tutto nel
+working tree senza commit**; ora è committato (cinque commit, ognuno verificato che compili da
+solo in un worktree separato).
 Build: `dotnet build gEngine.slnx --nologo -v q --no-incremental` → **0 errori, 0 warning**.
 Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo chiude).
+
+⚠️ **Fuori da git**, e non per dimenticanza: `assets/models/SummonersRift/` (506 MB) e
+`uploads_files_7216568_FuturisticGirl.obj` (87 MB) sono ignorati *di fatto* (mai aggiunti)
+contro un repo da 30 MB — decisione del proprietario ancora da prendere fra .gitignore e Git
+LFS. I loro `.mtl` **riparati** (path assoluti di un'altra macchina → path relativi veri) vivono
+quindi solo su disco: gli originali sono accanto come `.mtl.orig`.
 
 ### Fatto nelle sessioni precedenti
 
@@ -28,6 +36,19 @@ Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo 
 - **Fase 4.7bis**: **Play / Pausa / Stop**, con lo snapshot preso *prima* di partire (se la
   scena non è serializzabile non si parte: fallendo al Play si perde un clic, fallendo allo
   Stop si perde il lavoro). Con questo **la Fase 4 è chiusa**.
+
+### Fatto in QUESTA sessione (i cinque commit)
+
+1. **`ContentRoot`** — l'editor leggeva la *copia* degli asset dentro `bin/`. Quindi un file
+   nuovo non si vedeva (e non bastava riavviare: serviva ricompilare) e **il Salva scriveva in
+   `bin/`** invece che nel file versionato. Ora la cartella di progetto **è** la cartella asset.
+2. **Supporto JPEG** — questa build di raylib non li decodifica: ricaduta su `StbImageSharp` +
+   `RepairFailedAlbedo` per le texture *dentro* i modelli (che non passano da noi). È la causa
+   vera del "gli obj restano bianchi". ⚠️ Solo OBJ: glTF resta scoperto.
+3. **Riparentamento** (buco A) e **undo/redo** (buco B), in un commit solo perché toccano gli
+   stessi file.
+4. **Pannello File system a griglia** con anteprime.
+5. Documentazione: `ROADMAP.md` Fase 4.8 e 4.85.
 
 ### Verità utili (imparate a caro prezzo)
 
@@ -195,8 +216,9 @@ mutazioni su disco (creare/rinominare/eliminare) e il cestino. Creare/rinominare
 basilari direttamente da lì**. ⚠️ La parte "crea oggetti" incrocia il `SceneComponentRegistry`:
 un "cubo" è un'entità con Transform + MeshRenderer coi default della Fase 4.7 — cioè
 `EntityOperations.Create` + due `TryCreateDefault`, non codice nuovo. ⚠️ La parte "elimina" è
-quella che non ha rete: niente undo, niente cestino. **Vedi il punto B qui sopra: l'undo va
-fatto prima di questo**, non dopo.
+quella che non ha rete. ⚠️ **L'undo ora c'è ma NON copre il disco** (il punto B è chiuso): un
+comando in memoria non resuscita un file. Prima di scrivere quel bottone serve il **Cestino di
+Windows**, deciso col proprietario come rete separata.
 
 **3. Interfaccia per l'InputHandler e per i system.** L'`InputHandler` è una classe concreta e i
 system se la prendono nel costruttore: è l'ultima dipendenza del gioco che non passa da una
@@ -302,9 +324,10 @@ per anni). **Da decidere, non da scoprire a metà lavoro.**
 lookup tipo → file sorgente (che avrebbe voluto dire leggere il PDB).
 
 ### Task 6 — gestione file reale nel FileSystemPanel
-Il pannello ora **trascina** ma il disco resta in **sola lettura**: niente creare / rinominare
-/ eliminare. Non è pigrizia: qui sotto ci sono i file dell'utente e il pannello non ha né undo
-né cestino. Prima di aggiungere "elimina", decidere cosa gli si mette sotto.
+Il pannello ora trascina, **mostra a griglia con anteprime** e vede i file nuovi senza riavviare
+(vedi `ContentRoot`), ma il disco resta in **sola lettura**: niente creare / rinominare /
+eliminare. ⚠️ Non è più "manca l'undo": l'undo c'è e copre il World, non il disco. Quel che
+manca sotto "elimina" è il **cestino**.
 
 ### Slot per asset diversi da `Model`
 `DrawAssetSlot` gestisce solo `AssetKind.Model` e **lo dice** (`<slot Texture: non ancora
