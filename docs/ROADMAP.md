@@ -1412,6 +1412,61 @@ L'ECS (`CreateEntity`, `Query`, il gotcha struct/copia) resta scoperto, e resta 
 
 ---
 
+## Fase 4.87 — `ISystem.OnDestroy`: il pannello aveva reso raggiungibile un buco 🟢
+
+Era un debito **teorico** finché nessuno toglieva system. Il pannello Systems (Fase 4.7) li fa
+togliere **col mouse**, e `SystemRegistry.Remove` sfilava il system dalle fasi senza dirgli
+niente.
+
+Il danno era peggio di come lo descriveva il tooltip. Diceva *«lascia i corpi nel mondo Bepu,
+semplicemente nessuno li sincronizza più»*: in realtà la mappa entità→corpo è **privata
+dell'istanza**, quindi con il system fuori dal registry quei corpi non erano più
+**raggiungibili da nessuno** — continuavano a collidere contro un mondo che non li vede, e
+nemmeno rimettere il system li avrebbe ripuliti.
+
+- [x] **`ISystem.OnDestroy(World)`** — default interface member vuoto, come
+  `MatchedComponents`: un system scritto fuori dall'engine continua a compilare e la
+  maggioranza dei system non deve dichiarare niente
+- [x] **`SystemRegistry.Remove`** lo chiama, e `Remove<T>` con lui
+  - ⚠️ **Dopo** lo sfilamento dalle fasi, speculare ad `Add` che chiama `OnCreate` **dopo** lo
+    smistamento. Non è simmetria estetica: un system a metà smontaggio non deve poter ricevere
+    un `OnUpdate`
+  - ⚠️ Su un system **non registrato** non chiama niente: distruggere due volte è peggio che
+    non distruggere, perché chi scrive `OnDestroy` assume di essere in pari con un `OnCreate`
+- [x] **`PhysicsSystem.OnDestroy`** — toglie i suoi corpi da Bepu e il `PhysicsBodyComponent`
+  dalle entità vive (il link stantio farebbe leggere "il corpo c'è già" a un system rimesso in
+  seguito: l'entità avrebbe un RigidBody e non cadrebbe)
+  - ⚠️⚠️ **Non** dispone `IPhysicsWorld`, ed è la riga più facile da sbagliare: è
+    `IDisposable`, quindi disporlo *sembra* la cosa ordinata da fare. È una **Resource del
+    gioco**, ricevuta dal costruttore. Toglierlo dal pannello per curiosità distruggerebbe il
+    mondo fisico di tutti, e "Ripristina" restituirebbe un system agganciato a un oggetto morto.
+    **Si libera ciò che si è creato, non ciò che si è ricevuto** — c'è un test apposta
+
+### Cade anche la seconda metà del debito
+
+*«"Ripristina" richiama `OnCreate` su un'istanza già creata; oggi non morde perché tutti gli
+`OnCreate` sono vuoti, cioè regge per caso»*. Adesso `Rimuovi` chiama `OnDestroy`: i due si
+fanno il paio e l'istanza riparte da uno stato pulito. Non regge più per caso.
+
+### Verificato sabotando, non sperando
+
+Otto test sul ciclo di vita (`tests/gEngine.Tests/Ecs/`), con un `FakePhysicsWorld` che conta i
+corpi vivi — con Bepu vero servirebbe una simulazione intera per una domanda di ciclo di vita.
+Poi si è rotta l'implementazione per vedere se mordevano: tolta la chiamata a `OnDestroy` dal
+registry → **7 rossi**; aggiunto il `_physics.Dispose()` sbagliato → **1 rosso**, quello scritto
+apposta.
+
+### Di sponda: due `—` nei messaggi d'eccezione
+
+La scansione dei sorgenti per i caratteri `> 0xFF` fuori dai commenti (il modo prescritto di
+trovarli — *rileggendoli non si vedono*) ne ha trovati due, entrambi lineette lunghe U+2014 in
+messaggi di `InvalidOperationException`. Non sono innocui: quei messaggi finiscono sotto ImGui
+(`MainMenuBar._status` quando il Salva fallisce, `FileSystemPanel`, `PlayMode.LastError`) e il
+font di default copre solo Latin-1, quindi uscivano come `?`. Corretti in `-`, con un
+`Assert.DoesNotContain(... > 0xFF)` sul messaggio nel test del salvataggio.
+
+---
+
 ## Fase 5 — Profondità 3D: asset, materiali, luci, fisica 🔴
 
 Da "cubi colorati" a "scena 3D vera".

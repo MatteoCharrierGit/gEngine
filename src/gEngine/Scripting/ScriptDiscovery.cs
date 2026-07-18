@@ -1,4 +1,4 @@
-using System.Reflection;
+﻿using System.Reflection;
 using System.Text.Json;
 using gEngine.Core;
 using gEngine.Ecs;
@@ -189,7 +189,7 @@ public static class ScriptDiscovery
                 throw new InvalidOperationException(
                     $"{type.FullName} chiede un {parameters[i].ParameterType.Name} nel costruttore, " +
                     "ma non è dichiarato fra le Resource. Registralo con resources.Add<" +
-                    $"{parameters[i].ParameterType.Name}>(...) prima di scoprire gli script — " +
+                    $"{parameters[i].ParameterType.Name}>(...) prima di scoprire gli script - " +
                     "le Resource sono l'elenco di ciò di cui il gioco vive, e ciò che non è lì " +
                     "dentro non è iniettabile.");
 

@@ -118,9 +118,17 @@ public sealed class SystemRegistry(World world)
     }
 
     /// <summary>
-    /// Toglie un system da tutte le fasi. Non esiste un <c>OnDestroy</c> su
-    /// <see cref="ISystem"/>: un system che possiede risorse esterne (il
-    /// <c>PhysicsSystem</c> e i suoi corpi Bepu) non le libera togliendolo di qui.
+    /// Toglie un system da tutte le fasi e gli chiama <c>OnDestroy</c>, così può liberare
+    /// ciò che possiede fuori dall'ECS (il <c>PhysicsSystem</c> e i suoi corpi Bepu).
+    ///
+    /// ⚠️ <c>OnDestroy</c> si chiama <b>dopo</b> lo sfilamento dalle fasi, esattamente come
+    /// <see cref="Add"/> chiama <c>OnCreate</c> dopo lo smistamento. Non è simmetria per
+    /// estetica: se un <c>OnDestroy</c> tocca il World e qualcosa a valle facesse girare una
+    /// fase, un system a metà smontaggio non deve poter ricevere un <c>OnUpdate</c>.
+    ///
+    /// ⚠️ Su un system <b>non registrato</b> non chiama niente e restituisce <c>false</c>:
+    /// distruggere due volte è peggio che non distruggere: chi lo scrive assume di essere in
+    /// pari con un <c>OnCreate</c> che non c'è stato.
     /// </summary>
     public bool Remove(ISystem system)
     {
@@ -134,6 +142,8 @@ public sealed class SystemRegistry(World world)
         if (system is ISimulationSystem simulationSystem) _simulation.Remove(simulationSystem);
         if (system is ILateSystem lateSystem) _late.Remove(lateSystem);
         if (system is IRenderSystem renderSystem) _render.Remove(renderSystem);
+
+        system.OnDestroy(world);
 
         return true;
     }

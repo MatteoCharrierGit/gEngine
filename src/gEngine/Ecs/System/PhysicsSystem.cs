@@ -40,6 +40,44 @@ public class PhysicsSystem : ISimulationSystem
     {
     }
 
+    /// <summary>
+    /// Il system esce di scena: i corpi che ha creato escono con lui.
+    ///
+    /// Senza questo, togliere il PhysicsSystem dal pannello lasciava i corpi a simulare in
+    /// Bepu — e non "semplicemente non sincronizzati", come diceva il tooltip: la mappa
+    /// <see cref="_bodiesByEntity"/> è privata di questa istanza, quindi con il system fuori
+    /// dal registry quei corpi non erano più <b>raggiungibili da nessuno</b>. Continuavano a
+    /// collidere contro un mondo che non li vede.
+    ///
+    /// Si toglie anche il <see cref="PhysicsBodyComponent"/> dalle entità vive, per lo stesso
+    /// motivo per cui lo fa <see cref="RemoveOrphanedBodies"/>: è il link a un corpo che non
+    /// esiste più, e lasciandolo lì un system rimesso in seguito lo leggerebbe come "il corpo
+    /// c'è già" e non ne ricreerebbe nessuno. L'entità avrebbe un RigidBody e non cadrebbe.
+    ///
+    /// ⚠️ <b>Non</b> si tocca <see cref="_physics"/>: <c>IPhysicsWorld</c> è
+    /// <c>IDisposable</c>, ma è una Resource che il <b>gioco</b> possiede e passa al
+    /// costruttore. Disporlo qui vorrebbe dire che togliere un system dal pannello per
+    /// curiosità distrugge il mondo fisico di tutti — e "Ripristina" restituirebbe un system
+    /// agganciato a un oggetto morto. Si libera ciò che si è creato, non ciò che si è ricevuto.
+    /// </summary>
+    public void OnDestroy(World world)
+    {
+        foreach (var (entityId, body) in _bodiesByEntity)
+        {
+            _physics.RemoveBody(body);
+
+            var entity = new Entity(entityId);
+            if (world.Exists(entity))
+                world.RemoveComponent<PhysicsBodyComponent>(entity);
+        }
+
+        // Simmetrico a OnCreate: la stessa istanza può essere rimessa dal pannello, e deve
+        // ripartire senza ricordarsi di corpi che ha appena tolto.
+        _bodiesByEntity.Clear();
+        _pending.Clear();
+        _orphaned.Clear();
+    }
+
     public void OnUpdate(World world, float dt)
     {
         // 0) Rimuovi i corpi rimasti orfani.

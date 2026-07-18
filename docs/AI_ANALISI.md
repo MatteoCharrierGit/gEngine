@@ -131,6 +131,10 @@ Quattro cose trovate guardando il codice a fine sessione. Non sono desiderata: s
 cui l'editor **promette** qualcosa che non fa, o in cui una cosa nuova ha reso raggiungibile un
 debito vecchio. In ordine.
 
+✅ **Tutte e quattro sono chiuse.** Restano qui, col loro racconto, perché ciascuna ha lasciato
+una trappola che vale più della soluzione — vedi i "Fatto" in fondo a ognuna. La prossima cosa
+è il **punto 2 del piano** (FileSystem completo), che è a metà.
+
 ### A. Il riparentamento non esiste — e cinque posti dicono che c'è ✅ CHIUSO
 `ParentComponent` non è esposto nell'Inspector **apposta**, col commento *«il posto dove si
 riparenta è l'albero della Hierarchy»*. `SceneComponentRegistry` non gli dà un default perché
@@ -204,13 +208,21 @@ cosa il file **contiene**. Razionale, i tre sabotaggi provati e le trappole del 
 indice e non per nome; chiavi JSON canonicalizzate) stanno in `ROADMAP.md` **Fase 4.86** —
 **leggila prima di aggiungere test qui**.
 
-### D. `ISystem` non ha un `OnDestroy` 🟡
+### D. `ISystem` non ha un `OnDestroy` ✅ CHIUSO
 Era un debito teorico finché nessuno toglieva system. Il pannello Systems (Fase 4.7) li fa
 togliere **col mouse**: togliere il `PhysicsSystem` lascia i corpi nel mondo Bepu senza che
 nessuno li liberi. C'è un tooltip che lo dice, ma è una pezza — il pannello ha reso
 raggiungibile un buco che prima non lo era.
 - ⚠️ Stessa famiglia: "Ripristina" richiama `OnCreate` su un'istanza già creata. Oggi non morde
   perché **tutti** gli `OnCreate` sono vuoti, cioè regge per caso.
+
+**Fatto**: `ISystem.OnDestroy(World)` (default interface member vuoto), chiamato da
+`SystemRegistry.Remove`; `PhysicsSystem` lo implementa. ⚠️ Il danno era **peggio** di come lo
+diceva il tooltip: non "nessuno li sincronizza più" ma **irraggiungibili**, perché la mappa
+entità→corpo è privata dell'istanza. Cade anche la seconda metà del debito — `Rimuovi` e
+`Ripristina` adesso si fanno il paio. Razionale, la trappola del `Dispose` che **non** va fatto
+(il mondo fisico è una Resource del gioco, non roba del system) e i due sabotaggi con cui si è
+verificato stanno in `ROADMAP.md` **Fase 4.87** — **leggila prima di toccare queste cose**.
 
 *(Restano fuori perché sono comodità e non buchi: Save As, ricerca nella Hierarchy,
 multi-selezione.)*
@@ -380,8 +392,11 @@ ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe.
 - **"Aggiungi system" non esiste**: un system ha dipendenze, non c'è un default da costruire.
   Il bottone è spento **col motivo nel tooltip**. Servirebbe che il gioco dichiarasse le
   factory dei suoi system.
-- **Ripristina un system lo rimette in fondo alla sua fase**, non dov'era, e richiama
-  `OnCreate` sulla stessa istanza (oggi tutti vuoti, quindi non si vede).
+- **Ripristina un system lo rimette in fondo alla sua fase**, non dov'era: il registry smista
+  in ordine di registrazione e non sa da dove veniva. Dentro una fase l'ordine **è**
+  comportamento, quindi resta un limite reale. *(La seconda metà — `OnCreate` richiamato su
+  un'istanza già creata — non è più un debito: da Fase 4.87 `Rimuovi` chiama `OnDestroy` e i due
+  si fanno il paio.)*
 - ~~Niente undo, da nessuna parte.~~ **Fatto** (Fase 4.8). ⚠️ Resta scoperto il **disco**: il
   FileSystemPanel non ha ancora un cestino, e lo stack non può coprirlo.
 - **Lo slot degli asset non conosce `Kind`**: un modello su un `MeshRenderer` con `Kind = Cube`

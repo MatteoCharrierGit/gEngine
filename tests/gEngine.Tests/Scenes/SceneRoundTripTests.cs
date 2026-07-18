@@ -312,6 +312,12 @@ public class SceneRoundTripTests
 
         Assert.Contains("Parent", errore.Message);
         Assert.Contains(genitore.Id.ToString(), errore.Message);
+
+        // ⚠️ Questo messaggio finisce sotto ImGui (`MainMenuBar._status` quando il Salva
+        // fallisce), e il font di default copre solo Latin-1: tutto il resto esce come '?'.
+        // Non è teorico — qui dentro c'era una lineetta lunga '—' (U+2014), che si scrive
+        // senza pensarci, ed è stata trovata scandendo i sorgenti invece che rileggendoli.
+        Assert.DoesNotContain(errore.Message, character => character > 0xFF);
     }
 
     // ------ FIXTURE -----------------------------------------------------------------------
