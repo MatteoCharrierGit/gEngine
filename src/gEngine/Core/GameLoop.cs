@@ -39,7 +39,7 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
         // GameLoop possiede i due adapter raylib e li collega: il renderer risolve i
         // ModelHandle attraverso lo stesso backend che carica gli asset.
         var assetBackend = new RayLibAssetBackend();
-        _assetManager = new AssetManager(AppContext.BaseDirectory, "assets", assetBackend);
+        _assetManager = new AssetManager(ContentRoot.Path, "assets", assetBackend);
         _renderer = new RayLibRenderer(assetBackend);
 
         // ⚠️ ORDINE: la registrazione sta QUI e non prima di InitWindow perché renderer e
