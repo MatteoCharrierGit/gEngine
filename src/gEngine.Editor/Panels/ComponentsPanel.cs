@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
+using gEngine.Editor.Undo;
 using gEngine.Rendering;
 using gEngine.Scenes;
 using ImGuiNET;
@@ -142,12 +143,13 @@ public class ComponentsPanel : PanelBase
         if (ImGui.MenuItem($"Rimuovi da tutte ({count})", null, false, count > 0))
             _toRemoveFromAll = component.Type;
 
-        // ⚠️ Non c'è undo da nessuna parte in questo editor, e questa è la voce che ne fa
-        // sentire di più la mancanza: dirlo prima è tutto ciò che si può fare.
+        // Questa voce era il motivo principale per cui l'undo doveva esistere: toglieva un
+        // componente da dodici entità, subito e per sempre. Ora è un comando solo, quindi un
+        // Ctrl+Z lo disfa tutto - non dodici.
         HelpMarker(
             "Toglie questo componente da TUTTE le entità della scena, subito.\n\n" +
-            "Attenzione: Non c'è undo. Il file su disco non è toccato: File > Open Scene rilegge\n" +
-            "la scena da lì e rimette tutto - a patto di non aver salvato nel frattempo.");
+            "Si annulla con Ctrl+Z: le entità toccate tornano indietro tutte insieme, perché\n" +
+            "per chi guarda e' stata una cosa sola.");
 
         ImGui.EndPopup();
     }
@@ -238,18 +240,35 @@ public class ComponentsPanel : PanelBase
             if (context.Selected is { } entity && world.Exists(entity) &&
                 context.Components is { } registry &&
                 registry.TryCreateDefault(toAdd, out var created))
-                world.AddComponent(entity, created);
+            {
+                context.Undo.Run(world, entity, $"aggiungi {toAdd.Name}",
+                    () => world.AddComponent(entity, created));
+            }
 
             _toAdd = null;
         }
 
         if (_toRemoveFromAll is { } toRemove)
         {
-            foreach (var storage in world.ComponentStorages)
-            {
-                if (storage.ComponentType == toRemove)
-                    storage.Clear();
-            }
+            // Le entità coinvolte si raccolgono PRIMA: dopo la Clear il componente non c'è
+            // più da nessuna parte, e non resterebbe traccia di dove fosse. È il vincolo
+            // dichiarato da CompositeCommand.Around.
+            var affected = world.AllEntities
+                .Where(entity => world.HasComponent(entity, toRemove))
+                .ToList();
+
+            var command = CompositeCommand.Around(world, affected, $"rimuovi {toRemove.Name} da tutte",
+                () =>
+                {
+                    foreach (var storage in world.ComponentStorages)
+                    {
+                        if (storage.ComponentType == toRemove)
+                            storage.Clear();
+                    }
+                });
+
+            if (!command.IsEmpty)
+                context.Undo.Push(command);
 
             _toRemoveFromAll = null;
         }

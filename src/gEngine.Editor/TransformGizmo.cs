@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
+using gEngine.Editor.Undo;
 using gEngine.MathUtils;
 using gEngine.Rendering;
 using ImGuiNET;
@@ -53,6 +54,47 @@ public class TransformGizmo
     private const int AxisZ = 2;
 
     public GizmoMode Mode { get; set; } = GizmoMode.Translate;
+
+    /// <summary>
+    /// Lo stato dell'entità all'inizio del trascinamento, per l'annulla. Vive quanto il gesto.
+    /// </summary>
+    private EntitySnapshot? _dragBefore;
+
+    /// <summary>
+    /// Chiude il gesto: un comando solo per tutto il trascinamento.
+    ///
+    /// ⚠️ Un trascinamento che <b>non ha spostato niente</b> (la maniglia afferrata e lasciata
+    /// dov'era) non deve lasciare un annulla: <c>ChangedSomething</c> lo scarta. Senza,
+    /// afferrare un asse per sbaglio riempirebbe la storia di comandi che non fanno nulla, e
+    /// premere Ctrl+Z sembrerebbe non funzionare.
+    /// </summary>
+    private void EndDragUndo(World world, EditorContext context, Entity entity)
+    {
+        if (_dragBefore is not { } before)
+            return;
+
+        _dragBefore = null;
+
+        var verb = Mode switch
+        {
+            GizmoMode.Rotate => "ruota",
+            GizmoMode.Scale => "scala",
+            _ => "sposta"
+        };
+
+        var command = EntityStateCommand.Between(world, entity, $"{verb} {EntityName(world, entity)}", before);
+
+        if (command.ChangedSomething)
+            context.Undo.Push(command);
+    }
+
+    private static string EntityName(World world, Entity entity)
+    {
+        return world.TryGetComponent<NameComponent>(entity, out var name) &&
+               !string.IsNullOrWhiteSpace(name.Value)
+            ? name.Value
+            : $"Entity {entity.Id}";
+    }
 
     private Drag? _drag;
 
@@ -139,14 +181,25 @@ public class TransformGizmo
         // !toolbarWantsMouse: le maniglie passano SOTTO la toolbar, quindi un clic su
         // "Muovi" afferrerebbe anche l'asse che ci corre sotto.
         if (_drag is null && !toolbarWantsMouse && hovered >= 0 && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
+        {
             _drag = BeginDrag(hovered, origin, axes[hovered], length, transform,
                 camera.GetRay(mouse, viewportSize));
+
+            // Il "prima" dell'annulla si prende qui, all'inizio del gesto: Apply riscrive il
+            // transform a ogni frame del trascinamento, quindi un attimo dopo il "prima" è già
+            // perso. È lo stesso confine di gesto dell'Inspector, riconosciuto meglio: qui il
+            // trascinamento ha un inizio e una fine espliciti invece che dedotti.
+            _dragBefore = EntitySnapshot.Capture(world, entity);
+        }
 
         // IsMouseDown e non IsMouseReleased: se il rilascio avviene fuori dalla finestra
         // (o in un frame saltato) il released non lo vediamo mai e la maniglia resterebbe
         // incollata al puntatore.
         if (_drag is not null && !ImGui.IsMouseDown(ImGuiMouseButton.Left))
+        {
             _drag = null;
+            EndDragUndo(world, context, entity);
+        }
 
         if (_drag is not null)
         {

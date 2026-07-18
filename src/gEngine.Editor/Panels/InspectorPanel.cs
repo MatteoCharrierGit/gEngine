@@ -6,6 +6,7 @@ using gEngine.Ecs;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces;
+using gEngine.Editor.Undo;
 using gEngine.Rendering;
 using ImGuiNET;
 using Color = gEngine.Rendering.Color;
@@ -43,6 +44,8 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
             return;
         }
 
+        TrackEditing(world, context, entity);
+
         ImGui.Text($"Entity {entity.Id}");
         ImGui.Separator();
 
@@ -60,7 +63,11 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
                 removeFrom = storage;
         }
 
-        removeFrom?.Remove(entity.Id);
+        if (removeFrom is { } removed)
+        {
+            context.Undo.Run(world, entity, $"rimuovi {DisplayName(removed.ComponentType)}",
+                () => removed.Remove(entity.Id));
+        }
 
         ImGui.Spacing();
         DrawAddComponent(world, context, entity);
@@ -68,6 +75,80 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
         // Dopo aggiunta e rimozione, non prima: cambiare i componenti cambia quali system
         // agiscono sull'entità, e l'elenco deve dire com'è adesso — non com'era un istante fa.
         DrawTraceability(world, context, entity);
+    }
+
+    /// <summary>
+    /// Lo stato dell'entità nell'ultimo istante in cui <b>nessuno stava editando</b>: è il
+    /// "prima" di un'eventuale modifica. Null solo prima del primo frame utile.
+    /// </summary>
+    private EntitySnapshot? _resting;
+
+    private Entity _restingEntity;
+
+    /// <summary>Se dall'ultimo istante fermo qualcuno ha toccato qualcosa.</summary>
+    private bool _edited;
+
+    /// <summary>
+    /// Trasforma le scritture continue dell'Inspector in <b>un</b> comando annullabile per
+    /// gesto.
+    ///
+    /// Il problema che risolve: un <c>DragFloat</c> riscrive il componente a <b>ogni frame</b>
+    /// finché lo trascini. Registrare lì darebbe sessanta comandi al secondo, ognuno che disfa
+    /// un millimetro — cioè un annulla inutilizzabile, che è peggio di non averlo. Il confine
+    /// giusto è il <b>gesto</b>: da quando afferro un campo a quando lo lascio.
+    ///
+    /// Il gesto si riconosce da <c>IsAnyItemActive</c> letto <b>prima</b> di disegnare, cioè
+    /// riferito al frame precedente: se nessuno era attivo, lo stato di adesso è uno stato
+    /// "fermo" e vale come "prima". Non è per pannello e non per widget: un <c>Vector3</c> sono
+    /// tre campi e una posa è una cosa sola, quindi trascinare X e poi Y dà due annulla — che è
+    /// quel che ci si aspetta — ma un singolo trascinamento ne dà uno.
+    ///
+    /// ⚠️ Lo stato fermo si rifotografa <b>ogni frame</b>, ed è voluto anche se sembra
+    /// sprecato: fra un'edizione e l'altra la stessa entità può essere cambiata da qualcun
+    /// altro (un gizmo, la Hierarchy, un annulla), e un "prima" tenuto da parte diventerebbe
+    /// vecchio senza dirlo — l'annulla successivo riporterebbe indietro <b>anche</b> ciò che
+    /// non era stato toccato qui. Costa una manciata di copie superficiali per frame, contro
+    /// un frame di ImGui intero: non è il posto in cui questo editor spende.
+    /// </summary>
+    private void TrackEditing(World world, EditorContext context, Entity entity)
+    {
+        var editing = ImGui.IsAnyItemActive();
+
+        // Gesto finito: dal "prima" a com'è adesso, un comando solo.
+        if (_edited && !editing)
+        {
+            _edited = false;
+
+            if (_resting is { } before && _restingEntity == entity)
+            {
+                var command = EntityStateCommand.Between(world, entity, $"modifica {Name(world, entity)}", before);
+
+                if (command.ChangedSomething)
+                    context.Undo.Push(command);
+            }
+        }
+
+        // Fuori da un gesto, "adesso" è il prossimo "prima".
+        if (!_edited)
+        {
+            _resting = EntitySnapshot.Capture(world, entity);
+            _restingEntity = entity;
+        }
+    }
+
+    /// <summary>
+    /// Segnala che il gesto in corso ha <b>toccato</b> qualcosa. Lo chiamano i punti che
+    /// scrivono di continuo (i campi, lo slot degli asset); aggiunta e rimozione di un
+    /// componente no — quelle sono azioni istantanee e si registrano da sé.
+    /// </summary>
+    private void MarkEdited() => _edited = true;
+
+    private static string Name(World world, Entity entity)
+    {
+        return world.TryGetComponent<NameComponent>(entity, out var name) &&
+               !string.IsNullOrWhiteSpace(name.Value)
+            ? name.Value
+            : $"Entity {entity.Id}";
     }
 
     private const string AddComponentPopup = "aggiungi-componente";
@@ -141,7 +222,10 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
                 continue;
 
             if (registry.TryCreateDefault(component.Type, out var created))
-                world.AddComponent(entity, created);
+            {
+                context.Undo.Run(world, entity, $"aggiungi {component.Key}",
+                    () => world.AddComponent(entity, created));
+            }
 
             ImGui.CloseCurrentPopup();
 
@@ -301,7 +385,7 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
     }
 
     /// <returns>true se l'utente ha chiesto di rimuovere il componente.</returns>
-    private static bool DrawComponent(Entity entity, EditorContext context, IComponentStorage storage)
+    private bool DrawComponent(Entity entity, EditorContext context, IComponentStorage storage)
     {
         var type = storage.ComponentType;
 
@@ -348,7 +432,14 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
             // MeshRendererComponent) la mutazione è già in loco e questa è una riscrittura
             // dello stesso riferimento: innocua, e ci evita di distinguere i due casi.
             if (changed)
+            {
                 storage.SetBoxed(entity.Id, boxed);
+
+                // Il gesto in corso ha toccato qualcosa: al suo termine TrackEditing ne farà
+                // UN comando. Qui non si registra niente apposta - siamo dentro il frame di
+                // un trascinamento, e questa riga gira sessanta volte al secondo.
+                MarkEdited();
+            }
         }
 
         ImGui.PopID();

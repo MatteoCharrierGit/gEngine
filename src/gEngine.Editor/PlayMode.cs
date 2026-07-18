@@ -171,6 +171,13 @@ public sealed class PlayMode
             ? name.Value
             : null;
 
+        // ⚠️ La storia dell'annulla non attraversa il Play, in nessuna delle due direzioni.
+        // Non è prudenza: giocare muove la scena e lo Stop la ricostruisce da zero (World.Clear
+        // + Instantiate), quindi gli id di prima non esistono più — un comando rimasto lì
+        // parlerebbe di entità che non ci sono, e annullarlo le farebbe RINASCERE dentro una
+        // scena a cui non appartengono. Meglio nessuna storia che la storia di un'altra scena.
+        context.Undo.Clear();
+
         LastError = null;
         State = PlayState.Playing;
         return true;
@@ -211,6 +218,9 @@ public sealed class PlayMode
 
         world.Clear();
         SceneInstantiator.Instantiate(snapshot, world, registry, assets);
+
+        // Come al Play, e per la stessa ragione: le entità sono altre. Vedi lì.
+        context.Undo.Clear();
 
         // I corpi fisici delle entità appena distrutte non si liberano qui: se ne accorge il
         // PhysicsSystem, che li trova senza entità e li toglie dalla simulazione. ⚠️ Ma in

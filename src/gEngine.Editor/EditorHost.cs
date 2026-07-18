@@ -214,7 +214,7 @@ public class EditorHost
         // convenzione avrebbe solo dato modo di sbagliarla. ⚠️ Se un gioco terrà i suoi asset
         // altrove, questo è il punto da aprire — il pannello dice già "cartella non trovata"
         // invece di far finta di niente.
-        _panels.Add(new FileSystemPanel(Path.Combine(AppContext.BaseDirectory, "assets")));
+        _panels.Add(new FileSystemPanel(Path.Combine(ContentRoot.Path, "assets")));
 
         // Gli ultimi due nascono spenti (vedi i loro costruttori): sono nella lista perché è
         // da lì che il menu Panels li elenca — un pannello che non è registrato qui non ha
@@ -286,7 +286,44 @@ public class EditorHost
         foreach (var panel in _panels)
             panel.Draw(world, Context, renderer);
 
+        // Dopo i pannelli: le scorciatoie non devono rubare il tasto a chi lo stava usando nel
+        // frame corrente. Vedi DrawUndoShortcuts.
+        DrawUndoShortcuts(world);
+
         rlImGui.End();
+    }
+
+    /// <summary>
+    /// Ctrl+Z / Ctrl+Y, e Ctrl+Shift+Z perché mezzo mondo rifà così.
+    ///
+    /// ⚠️ <b>Non mentre si scrive in un campo di testo</b>: dentro un <c>InputText</c> ImGui ha
+    /// il <b>suo</b> annulla, che è quello che ci si aspetta lì (disfa le lettere, non l'ultima
+    /// entità creata). Rubargli il tasto vorrebbe dire che rinominare un'entità e sbagliare una
+    /// lettera annulla qualcos'altro nella scena. <c>WantTextInput</c> è il segnale giusto, ed è
+    /// più stretto di <c>WantCaptureKeyboard</c>: quest'ultimo è vero ogni volta che una
+    /// finestra ImGui ha il fuoco, cioè quasi sempre — e le scorciatoie non funzionerebbero mai.
+    ///
+    /// Le maiuscole non c'entrano: <c>ImGuiKey.Z</c> è il tasto fisico.
+    /// </summary>
+    private void DrawUndoShortcuts(World world)
+    {
+        var io = ImGui.GetIO();
+
+        if (io.WantTextInput || !io.KeyCtrl)
+            return;
+
+        var shift = io.KeyShift;
+
+        if (ImGui.IsKeyPressed(ImGuiKey.Z, repeat: true))
+        {
+            if (shift)
+                Context.Undo.Redo(world);
+            else
+                Context.Undo.Undo(world);
+        }
+
+        if (ImGui.IsKeyPressed(ImGuiKey.Y, repeat: true))
+            Context.Undo.Redo(world);
     }
 
     public void Shutdown()

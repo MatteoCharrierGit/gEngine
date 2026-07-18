@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
+using gEngine.Editor.Undo;
 using gEngine.Rendering;
 using ImGuiNET;
 
@@ -24,9 +25,16 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
     private readonly List<Entity> _roots = [];
 
     /// <summary>Comando richiesto in questo frame, applicato a fine disegno. Vedi ApplyPendingCommand.</summary>
-    private enum Command { None, Create, CreateChild, Duplicate, Destroy }
+    private enum Command { None, Create, CreateChild, Duplicate, Destroy, Reparent }
 
     private Command _command = Command.None;
+
+    /// <summary>
+    /// Il nuovo genitore di <see cref="_target"/> per <see cref="Command.Reparent"/>, o null
+    /// per "portalo a radice". Campo a sé e non un <c>Entity</c> con un valore convenzionale:
+    /// "nessun genitore" è uno stato legittimo, non un'entità speciale.
+    /// </summary>
+    private Entity? _reparentTo;
 
     /// <summary>
     /// L'entità su cui agisce <see cref="_command"/>.
@@ -45,6 +53,8 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
 
         foreach (var root in _roots)
             DrawEntity(world, context, root);
+
+        DrawRootDropZone(world);
 
         // Clic nel vuoto del pannello = deseleziona. IsWindowHovered senza flag ignora
         // le zone coperte dagli item, quindi non ruba il clic alle righe dell'albero.
@@ -115,6 +125,37 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
         ImGui.EndPopup();
     }
 
+    /// <summary>
+    /// Il bersaglio "portami a radice", che <b>esiste solo mentre si trascina</b> qualcosa che
+    /// può diventare radice.
+    ///
+    /// È una riga vera e non lo spazio vuoto del pannello per un motivo di scopribilità: il
+    /// vuoto sotto l'albero non dice di essere un bersaglio, e un utente che vuole staccare un
+    /// figlio non ha nessun posto ovvio dove lasciarlo cadere. Mostrarla solo durante il
+    /// trascinamento è il compromesso: la riga appare quando serve e non occupa il pannello il
+    /// resto del tempo.
+    ///
+    /// ⚠️ Un <c>Selectable</c> e non un <c>Text</c>: serve un item con un id, perché
+    /// <c>BeginDragDropTarget</c> lavora sull'ultimo item disegnato — e un <c>Text</c> non ne
+    /// ha uno (è la stessa trappola che con <c>BeginPopupContextItem</c> arriva fino
+    /// all'assert nativo).
+    /// </summary>
+    private void DrawRootDropZone(World world)
+    {
+        if (!EntityDragDrop.TryPeek(out var dragged) ||
+            !EntityOperations.CanReparent(world, dragged, null))
+            return;
+
+        ImGui.Selectable("Rilascia qui: diventa radice");
+
+        if (!EntityDragDrop.Target(out var dropped))
+            return;
+
+        _command = Command.Reparent;
+        _target = dropped;
+        _reparentTo = null;
+    }
+
     private void ApplyPendingCommand(World world, EditorContext context)
     {
         var command = _command;
@@ -125,7 +166,7 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
 
         if (command == Command.Create)
         {
-            context.Select(EntityOperations.Create(world));
+            context.Select(Created(world, context, "crea entità", () => EntityOperations.Create(world)));
             return;
         }
 
@@ -137,15 +178,34 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
         switch (command)
         {
             case Command.CreateChild:
-                context.Select(EntityOperations.Create(world, _target));
+                context.Select(Created(world, context, "crea entità figlia",
+                    () => EntityOperations.Create(world, _target)));
                 break;
 
             case Command.Duplicate:
-                context.Select(EntityOperations.Duplicate(world, _target));
+                context.Select(Created(world, context, $"duplica {Label(world, _target)}",
+                    () => EntityOperations.Duplicate(world, _target)));
+                break;
+
+            // Il valore di ritorno si ignora apposta: false significa che nel frame trascorso
+            // fra il rilascio e adesso la mossa è diventata illegale (il genitore è stato
+            // distrutto, qualcun altro ha riparentato). Non è un errore da mostrare, è una
+            // mossa che non si fa — e la Hierarchy del frame successivo lo fa già vedere.
+            //
+            // Il riparentamento tocca i componenti di UNA entità (il ParentComponent sta tutto
+            // sul figlio, e il Transform ricalcolato pure), quindi entra nell'undo come una
+            // qualunque modifica: se non ha cambiato niente, Run non registra niente.
+            case Command.Reparent:
+                context.Undo.Run(world, _target, $"sposta {Label(world, _target)}",
+                    () => EntityOperations.Reparent(world, _target, _reparentTo));
                 break;
 
             case Command.Destroy:
-                EntityOperations.DestroyRecursive(world, _target);
+                var doomed = EntityOperations.Descendants(world, _target);
+
+                context.Undo.Push(EntityLifetimeCommand.ForDestruction(
+                    world, $"elimina {Label(world, _target)}", doomed,
+                    () => EntityOperations.DestroyRecursive(world, _target)));
 
                 // Solo se la selezione è finita nel sottoalbero eliminato: il destro su
                 // un'entità seleziona, ma "elimina questa" non è "dimentica quell'altra".
@@ -154,6 +214,16 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
 
                 break;
         }
+    }
+
+    /// <summary>
+    /// Crea passando per l'undo. Il nome dell'entità si legge <b>dopo</b>: prima non esiste.
+    /// </summary>
+    private static Entity Created(World world, EditorContext context, string label, Func<Entity> factory)
+    {
+        var command = EntityLifetimeCommand.ForCreation(world, label, factory);
+        context.Undo.Push(command);
+        return command.Entity;
     }
 
     private void BuildTree(World world)
@@ -204,7 +274,27 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
         // (o entrambe senza nome) devono restare righe distinte e selezionabili a parte.
         ImGui.PushID(entity.Id);
 
-        var open = ImGui.TreeNodeEx(Label(world, entity), flags);
+        var label = Label(world, entity);
+        var open = ImGui.TreeNodeEx(label, flags);
+
+        // Trascinamento: sorgente e bersaglio lavorano entrambi sull'ultimo item disegnato,
+        // quindi stanno qui, prima di qualunque altra cosa che possa diventare "l'ultimo item".
+        // ⚠️ Vale anche per il menu contestuale qui sotto: l'adiacenza che quel commento chiede
+        // regge perché nessuno di questi due disegna un item nella finestra corrente (la
+        // sorgente disegna l'anteprima dentro un tooltip, che è un'altra finestra).
+        EntityDragDrop.Source(entity, label);
+
+        // Il bersaglio si offre solo se la mossa è legale: un riparentamento su sé stessi o
+        // dentro un proprio discendente non si illumina nemmeno. Vedi EntityOperations.CanReparent
+        // per il perché il controllo è qui e non dopo il rilascio.
+        if (EntityDragDrop.TryPeek(out var dragged) &&
+            EntityOperations.CanReparent(world, dragged, entity) &&
+            EntityDragDrop.Target(out var dropped))
+        {
+            _command = Command.Reparent;
+            _target = dropped;
+            _reparentTo = entity;
+        }
 
         // IsItemToggledOpen esclude il clic sulla freccia: aprire un nodo non è selezionarlo.
         // Anche il destro seleziona: il menu che sta per aprirsi parla di questa entità, e

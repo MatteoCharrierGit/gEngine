@@ -60,9 +60,10 @@ public static class EntityOperations
     /// <summary>
     /// Crea una copia dell'entità con gli stessi componenti.
     ///
-    /// La copia è <b>superficiale e per valore</b>: i componenti sono struct (o piccole
-    /// class di dati), quindi <c>GetBoxed</c>+<c>SetBoxed</c> bastano — la stessa faccia
-    /// non generica che usa l'Inspector, riusata qui senza conoscere un solo tipo.
+    /// La copia è <b>superficiale e per valore</b>, e passa da <see cref="ComponentCopy"/>: la
+    /// faccia non generica dell'Inspector (<c>GetBoxed</c>/<c>SetBoxed</c>) da sola <b>non
+    /// basta</b>, perché su una class restituisce il riferimento e le due entità resterebbero
+    /// legate. Vedi lì per il bug che questo ha smesso di produrre.
     ///
     /// I componenti marcati <see cref="RuntimeStateAttribute"/> sono <b>saltati</b>:
     /// sono link a risorse esterne, e copiarli farebbe puntare due entità alla stessa
@@ -85,9 +86,15 @@ public static class EntityOperations
             if (storage.ComponentType.IsDefined(typeof(RuntimeStateAttribute), inherit: false))
                 continue;
 
+            // ⚠️ ComponentCopy e non il boxed nudo: per uno struct il boxing è già una copia,
+            // per una CLASS è il riferimento — e le due entità finivano a condividere lo stesso
+            // componente. Non era teorico: dipingere di rosso il MeshRenderer della copia
+            // dipingeva anche l'originale (verificato, poi corretto). Il commento qui sopra
+            // diceva "i componenti sono struct (o piccole class di dati), quindi GetBoxed
+            // basta": la parentesi era proprio il caso in cui non bastava.
             var component = storage.GetBoxed(source.Id);
             if (component is not null)
-                storage.SetBoxed(clone.Id, component);
+                storage.SetBoxed(clone.Id, ComponentCopy.Shallow(component));
         }
 
         // Il nome è stato copiato come qualunque altro dato, ma non è un dato qualunque:
@@ -168,6 +175,131 @@ public static class EntityOperations
     }
 
     /// <summary>
+    /// Se spostare <paramref name="child"/> sotto <paramref name="newParent"/> (o a radice, con
+    /// null) è un'operazione <b>legale</b>.
+    ///
+    /// Esiste separata da <see cref="Reparent"/>, e non come suo valore di ritorno, perché
+    /// serve <b>prima</b>: la Hierarchy la interroga mentre il trascinamento è in volo per
+    /// decidere se rendere una riga un bersaglio. Un riparentamento impossibile non deve
+    /// illuminarsi e poi rifiutare — deve non essere offerto.
+    ///
+    /// Le regole, in ordine di cosa proteggono:
+    /// <list type="bullet">
+    /// <item>Entità vive, e non sé stessa: un'entità figlia di sé è un ciclo di lunghezza uno.</item>
+    /// <item><b>Niente cicli</b>: un genitore non può finire dentro un proprio discendente.
+    /// ⚠️ Non è teorico e non è cosmetico — <c>GetWorldMatrix</c> risale i genitori
+    /// ricorsivamente <b>senza guard</b>, quindi un ciclo non è un dato strano, è un blocco
+    /// totale al primo frame che prova a disegnare quell'entità. È lo stesso pericolo per cui
+    /// <see cref="DestroyRecursive"/> ha un visited set, visto dall'altro lato: lì ci si
+    /// difende da un ciclo esistente, qui si impedisce di crearlo.</item>
+    /// <item>Niente no-op: chi è già figlio di quel genitore (o già radice) non si sposta, e
+    /// una riga che si illumina per non fare niente mente.</item>
+    /// </list>
+    /// </summary>
+    public static bool CanReparent(World world, Entity child, Entity? newParent)
+    {
+        if (!world.Exists(child))
+            return false;
+
+        var currentParent = world.TryGetComponent<ParentComponent>(child, out var parent) &&
+                            world.Exists(parent.Parent)
+            ? parent.Parent
+            : (Entity?)null;
+
+        if (newParent is not { } target)
+            return currentParent is not null; // a radice: solo se un genitore ce l'ha
+
+        if (!world.Exists(target) || target == child || currentParent == target)
+            return false;
+
+        return !IsDescendantOf(world, target, child);
+    }
+
+    /// <summary>
+    /// Sposta <paramref name="child"/> sotto <paramref name="newParent"/>, o a <b>radice</b> se
+    /// è null — e a radice significa <b>togliere</b> il <see cref="ParentComponent"/>, non
+    /// metterlo a <c>Entity(0)</c>: un componente che dice "sono figlia di un'entità che non
+    /// esiste" è peggio del non averlo, e la Hierarchy lo tratterebbe comunque come radice
+    /// (vedi <c>BuildTree</c>) portandosi dietro un riferimento rotto fino al salvataggio.
+    ///
+    /// <b>La posa di mondo è mantenuta</b>: l'entità resta visivamente dov'è, e a cambiare è il
+    /// suo <see cref="TransformComponent"/>, che è <b>locale</b> rispetto al genitore. È la
+    /// semantica di Unity, ed è quella giusta qui perché il trascinamento è un gesto sull'albero
+    /// — chi riordina la gerarchia non sta chiedendo di spostare l'oggetto nella scena, e
+    /// vederlo saltare via sembrerebbe un bug del trascinamento.
+    ///
+    /// ⚠️ <b>Eredita il debito noto di <see cref="WorldTransforms.SetWorldPose"/></b>: con un
+    /// genitore a scala <b>non uniforme</b> la posizione resta esatta ma l'orientamento sbaglia
+    /// (~90° in mediana), <b>in silenzio</b>. Non è arrotondamento: con shear il quaternione
+    /// locale che darebbe quell'orientamento non esiste. Qui il caso è più raggiungibile che
+    /// altrove — le camere erano root, un'entità trascinata a mano finisce dove capita.
+    ///
+    /// Se la posa non è ricostruibile (nessun Transform, o una world matrix non decomponibile
+    /// perché un anello della catena ha scala 0) il <b>riparentamento avviene comunque</b> e la
+    /// posa non si tocca: la gerarchia è ciò che è stato chiesto, la posa è la cortesia.
+    /// </summary>
+    /// <returns>false, e nessuna modifica, se <see cref="CanReparent"/> dice di no. Il
+    /// controllo è ripetuto qui e non dato per fatto: fra il rilascio del mouse e
+    /// l'applicazione del comando passa un frame, e il mondo nel frattempo ha girato.</returns>
+    public static bool Reparent(World world, Entity child, Entity? newParent)
+    {
+        if (!CanReparent(world, child, newParent))
+            return false;
+
+        // Letta PRIMA di toccare la gerarchia: dopo, questa stessa chiamata darebbe la posa
+        // nel nuovo spazio, cioè quella che stiamo cercando di non far cambiare.
+        var worldMatrix = world.GetWorldMatrix(child);
+
+        // ⚠️ Il && corto avrebbe lasciato la rotazione non assegnata quando l'entità non ha un
+        // Transform: qui il valore serve solo se canRestorePose, ma il compilatore ha ragione
+        // a non fidarsi di un out dietro uno short-circuit.
+        var rotation = Quaternion.Identity;
+        var canRestorePose = world.HasComponent<TransformComponent>(child) &&
+                             Matrix4x4.Decompose(worldMatrix, out _, out rotation, out _);
+
+        if (newParent is { } target)
+            world.AddComponent(child, new ParentComponent { Parent = target });
+        else
+            world.RemoveComponent<ParentComponent>(child);
+
+        if (canRestorePose)
+            world.SetWorldPose(child, worldMatrix.Translation, rotation);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Se <paramref name="entity"/> discende da <paramref name="ancestor"/>. Si risale la
+    /// catena dei genitori invece di scendere fra i figli: verso l'alto il cammino è unico
+    /// (<see cref="ParentComponent"/> tiene un solo riferimento), quindi è una passeggiata e
+    /// non una visita.
+    ///
+    /// ⚠️ Il visited set non è per i cicli che creiamo noi — <see cref="CanReparent"/> esiste
+    /// per impedirli — ma per quelli che potrebbero <b>già</b> esserci: una scena scritta a mano
+    /// può contenere qualunque cosa, e senza guard il controllo che deve proteggere dal blocco
+    /// sarebbe esso stesso il blocco.
+    /// </summary>
+    private static bool IsDescendantOf(World world, Entity entity, Entity ancestor)
+    {
+        var visited = new HashSet<int>();
+        var current = entity;
+
+        while (visited.Add(current.Id) &&
+               world.TryGetComponent<ParentComponent>(current, out var parent))
+        {
+            if (parent.Parent == ancestor)
+                return true;
+
+            if (!world.Exists(parent.Parent))
+                return false;
+
+            current = parent.Parent;
+        }
+
+        return false;
+    }
+
+    /// <summary>
     /// Elimina l'entità <b>e tutti i suoi discendenti</b>. Un figlio senza genitore non
     /// avrebbe un significato migliore di "sparisci anche tu": il suo transform è locale
     /// rispetto a qualcosa che non esiste più, quindi salterebbe a una posa arbitraria.
@@ -178,6 +310,20 @@ public static class EntityOperations
     /// costruirebbe mai, e qui un ciclo significherebbe un blocco totale.
     /// </summary>
     public static void DestroyRecursive(World world, Entity root)
+    {
+        foreach (var entity in Descendants(world, root))
+            world.DestroyEntity(entity);
+    }
+
+    /// <summary>
+    /// L'entità e tutti i suoi discendenti, radice inclusa e per prima.
+    ///
+    /// Separato da <see cref="DestroyRecursive"/> perché serve anche a chi deve sapere
+    /// <b>cosa sta per sparire</b> prima che sparisca: l'undo fotografa il sottoalbero, e dopo
+    /// la distruzione non c'è più niente da fotografare. Due chiamanti sulla stessa
+    /// definizione di "sottoalbero" è esattamente il caso in cui non si riscrive il giro.
+    /// </summary>
+    public static List<Entity> Descendants(World world, Entity root)
     {
         // Mappa padre→figli costruita UNA volta: cercare i figli riscandendo i
         // ParentComponent a ogni nodo renderebbe l'eliminazione quadratica sul numero
@@ -194,7 +340,7 @@ public static class EntityOperations
             children.Add(child);
         }
 
-        var toDestroy = new List<Entity>();
+        var collected = new List<Entity>();
         var visited = new HashSet<int> { root.Id };
         var queue = new Queue<Entity>();
         queue.Enqueue(root);
@@ -202,7 +348,7 @@ public static class EntityOperations
         while (queue.Count > 0)
         {
             var current = queue.Dequeue();
-            toDestroy.Add(current);
+            collected.Add(current);
 
             if (!childrenByParent.TryGetValue(current.Id, out var children))
                 continue;
@@ -214,7 +360,6 @@ public static class EntityOperations
             }
         }
 
-        foreach (var entity in toDestroy)
-            world.DestroyEntity(entity);
+        return collected;
     }
 }
