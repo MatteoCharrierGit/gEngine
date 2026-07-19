@@ -19,7 +19,7 @@ Aggiornato al **19 luglio 2026**, branch `feat/editor-mvp`.
 | | |
 |---|---|
 | Build | `dotnet build gEngine.slnx --nologo -v q` → **0 errori, 0 warning** *(verificato)* |
-| Test | `dotnet test tests/gEngine.Tests` → **93 verdi** *(verificato)* |
+| Test | `dotnet test tests/gEngine.Tests` → **92 verdi** *(verificato)* |
 | Run | `dotnet run --project samples/Sandbox` — l'editor si apre di default, **F1** lo chiude |
 
 **Fasi**: 0–4 chiuse (editor MVP completo: hierarchy, inspector, gizmi, save/load, play/stop,
@@ -29,12 +29,9 @@ fatta — mancano le rifiniture elencate sotto. Fase 6 non iniziata.
 ### ⬅️ Si riprende da qui
 
 **[Interfaccia per l'`InputHandler`](#11-interfaccia-per-linputhandler-e-per-i-system)**, che
-adesso è il punto 1 del piano. La **console è chiusa** — Fasi 4.91 / 4.92 / 4.93.
-
-⚠️ **Una cosa aperta dalla console**, piccola ma da non perdere: `Logger.RemoveSink` è rimasta
-**senza clienti**. Il pannello legge la `LogHistory` invece di registrarsi come sink, quindi
-nessuno si sregistra più. O le si trova un uso, o va tolta — è esattamente il genere di codice
-morto che questa fase ha appena finito di ripulire altrove.
+adesso è il punto 1 del piano. Dietro non resta niente in sospeso: console chiusa (Fasi 4.91 /
+4.92 / 4.93), `MeshRenderer` a struct col gotcha sotto test (4.94), e la potatura di
+`RemoveSink` fatta.
 
 ---
 
@@ -118,7 +115,7 @@ anni).
 
 ## 3. Test
 
-Il progetto esiste (`tests/gEngine.Tests`, xUnit, 93 verdi) e copre serializzazione, ciclo di
+Il progetto esiste (`tests/gEngine.Tests`, xUnit, 92 verdi) e copre serializzazione, ciclo di
 vita dei system, file degli asset, log e lo storage dei componenti.
 
 - **ECS** — `CreateEntity`, `AddComponent`/`GetComponent`, `Query<..>` restano scoperti.

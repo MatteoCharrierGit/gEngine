@@ -30,7 +30,9 @@ public sealed class LogHistory(int capacity = 500) : ILogSink
 {
     private readonly Queue<LogMessage> _messages = new();
 
-    public int Capacity { get; } = capacity;
+    // Privata: la legge solo il taglio qui sotto. Esposta non la guardava nessuno, e la
+    // superficie pubblica che nessuno usa e' esattamente cio' che questo giro ha ripulito.
+    private readonly int _capacity = capacity;
 
     /// <summary>
     /// I messaggi tenuti, dal più vecchio al più recente.
@@ -61,7 +63,7 @@ public sealed class LogHistory(int capacity = 500) : ILogSink
         _messages.Enqueue(message);
 
         // Uno solo: si entra da un Enqueue alla volta, quindi non si accumula mai un arretrato.
-        if (_messages.Count > Capacity)
+        if (_messages.Count > _capacity)
             _messages.Dequeue();
     }
 

@@ -1887,8 +1887,29 @@ uno screenshot che semplicemente non c'era. Non era il rig rotto: era la sveglia
 ### Cosa resta aperto
 
 ⚠️ **`Logger.RemoveSink` è rimasta senza clienti**: era pensata per un pannello-sink che si
-sregistra chiudendosi, e il pannello non è un sink. È in `ROADMAP.md` — o le si trova un uso o
-va tolta, perché è lo stesso codice morto che la Fase 4.91 ha trovato nel logger.
+sregistra chiudendosi, e il pannello non è un sink. *(Chiusa subito dopo — vedi qui sotto.)*
+
+### Coda: `RemoveSink` e `Sinks` tolti, e la distinzione con `ComponentCopy`
+
+`RemoveSink` era chiamata **solo dal suo test**; `Sinks` non era usata **nemmeno da quello**.
+Tolte, insieme al test. `LogHistory.Capacity` è diventata un campo privato per la stessa
+ragione: la leggeva solo il taglio interno.
+
+⚠️ **Sembra in contraddizione con `ComponentCopy.Shallow`**, tenuta il giorno prima pur essendo
+ridondante. Non lo è, e la distinzione è la cosa da ricordare:
+
+| | `ComponentCopy.Shallow` | `RemoveSink` / `Sinks` |
+|---|---|---|
+| Chiamata? | **Sì**, da tre punti | **No**, da nessuno |
+| Togliendola | i tre chiamanti restano corretti **per coincidenza**, e si romperebbero in silenzio il giorno che un componente torna `class` | non cambia niente, se non la superficie pubblica |
+
+Cioè: si tiene il codice ridondante che **protegge**, si toglie il codice che **non fa niente**.
+"Non serve oggi" da solo non decide — la domanda è cosa succede a chi resta.
+
+⚠️ E c'è un motivo per cui `RemoveSink` non è stata *lasciata lì per il futuro*: era stata
+scritta immaginando un chiamante che non è mai esistito. Un'API disegnata su un caso d'uso
+ipotizzato è probabile che sia la forma sbagliata quando il caso vero arriva — meglio tre righe
+scritte con un chiamante davanti.
 
 ---
 

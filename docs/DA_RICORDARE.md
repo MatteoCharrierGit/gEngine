@@ -43,6 +43,23 @@ seconda gamba, che verifica cosa il file **contiene**. `DECISIONI.md` Fase 4.86.
 ramo mai renderizzato, un assert che piantava il gioco al primo frame, e uno slot rimasto senza
 etichetta. ⚠️ Il codice temporaneo degli screenshot **va tolto dopo**.
 
+### Codice che non serve: due casi, due risposte
+
+Nel repo ci sono due decisioni che sembrano contraddirsi — `ComponentCopy.Shallow` **tenuta** pur
+essendo ridondante, `Logger.RemoveSink` **tolta**. La regola che le concilia:
+
+| | Viene chiamato? | Cosa succede togliendolo |
+|---|---|---|
+| `ComponentCopy.Shallow` | **Sì**, da tre punti | i chiamanti restano corretti **per coincidenza**, e si rompono in silenzio quando l'assunzione cambia |
+| `RemoveSink` / `Sinks` | **No**, da nessuno | niente, se non meno superficie pubblica |
+
+**Si tiene il codice ridondante che protegge, si toglie il codice che non fa niente.** "Non
+serve oggi" da solo non decide: la domanda è *cosa succede a chi resta*.
+
+⚠️ E non si lascia un'API "pronta per il futuro": `RemoveSink` era disegnata su un chiamante
+immaginato che non è mai esistito. Quando il caso vero arriva, un'API ipotizzata è probabile che
+abbia già la forma sbagliata.
+
 ### ⚠️ Non fidarti dei commenti, non documentare a memoria
 
 - In questo repo sono stati trovati **tre commenti che mentivano**. Il terzo (`GetBoxed` "dà una
@@ -257,6 +274,12 @@ spostare è **l'HUD** — diventerebbe un `[GameSystem] IRenderSystem`, ed è la
   quello di `ScriptDiscovery` quando riempie il costruttore di un system. C'è un test apposta.
 - Con lo stdout **rediretto su file** i colori di `ConsoleLogSink` finiscono nel file come
   sequenze VT (`ESC[7m`). In un terminale vero non si vede; leggendo un log catturato, sì.
+
+- **I sink si attaccano all'avvio e vivono quanto il processo.** Non c'è un `RemoveSink`: c'era,
+  non lo chiamava nessuno, ed è stato tolto. ⚠️ Era stato scritto immaginando un pannello che si
+  registrasse e sregistrasse aprendosi — poi la console si è rivelata un **lettore** di
+  `LogHistory`, non un sink. Un'API disegnata su un chiamante ipotizzato è probabile che abbia
+  la forma sbagliata quando il chiamante vero arriva.
 
 ### Dove si logga, e dove no
 

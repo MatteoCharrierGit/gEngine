@@ -27,29 +27,23 @@ public sealed class Logger : ILogger
     public LogLevel MinimumLevel { get; set; } = LogLevel.Debug;
 
     /// <summary>
-    /// I sink registrati, in ordine di registrazione.
+    /// Aggiunge un destinatario.
     ///
-    /// ⚠️ Un sink registrato <b>dopo</b> non vede quel che è già passato: <see cref="Logger"/>
-    /// non tiene storia. Chi ne ha bisogno — una console che si apre a metà partita e vuole
-    /// mostrare anche l'avvio — se la tiene per conto suo, oppure si registra prima. È la
-    /// stessa ragione per cui il filtro sta qui e il buffer no: la soglia è una regola sola,
-    /// la storia è un bisogno di chi guarda.
+    /// ⚠️ Un sink registrato <b>dopo</b> non vede quel che è già passato: questo logger non
+    /// tiene storia (la soglia è una regola sola e sta qui, la storia è un bisogno di chi
+    /// guarda e sta in <see cref="LogHistory"/>). Chi vuole vedere anche l'avvio si registra
+    /// prima di <c>InitWindow</c>, come fa il <c>GameLoop</c>.
+    ///
+    /// ⚠️ <b>Non esiste un <c>RemoveSink</c></b>, ed è voluto: c'era, non lo chiamava nessuno,
+    /// ed è stato tolto. Era stato scritto immaginando un pannello che si registrasse e si
+    /// sregistrasse aprendosi e chiudendosi — poi la console si è rivelata un <i>lettore</i>
+    /// di <see cref="LogHistory"/>, non un sink, e quel bisogno non è mai esistito. Oggi i sink
+    /// li attacca il <c>GameLoop</c> all'avvio e vivono quanto il processo. Il giorno che
+    /// servisse davvero, sono tre righe — ma vanno scritte con un chiamante vero davanti.
     /// </summary>
-    public IReadOnlyList<ILogSink> Sinks => _sinks;
-
     public void AddSink(ILogSink sink)
     {
         _sinks.Add(sink);
-    }
-
-    /// <summary>
-    /// Toglie un sink. Serve a chi ha un ciclo di vita più corto del gioco — un pannello
-    /// dell'editor che si chiude, per dire: senza, il logger lo terrebbe vivo per sempre e
-    /// continuerebbe a scriverci dentro.
-    /// </summary>
-    public bool RemoveSink(ILogSink sink)
-    {
-        return _sinks.Remove(sink);
     }
 
     public void Log(LogLevel level, string category, string message)

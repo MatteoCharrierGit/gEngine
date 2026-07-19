@@ -90,25 +90,6 @@ public class LoggerTests
     }
 
     /// <summary>
-    /// Serve a chi ha vita più corta del gioco: un pannello che si chiude. Senza, il logger lo
-    /// terrebbe vivo e continuerebbe a scriverci dentro.
-    /// </summary>
-    [Fact]
-    public void RemoveSink_SmetteDiRicevere()
-    {
-        var logger = new Logger();
-        var sink = new SpySink();
-        logger.AddSink(sink);
-        logger.Info(LogCategories.Engine, "prima");
-
-        Assert.True(logger.RemoveSink(sink));
-        logger.Info(LogCategories.Engine, "dopo");
-
-        var messaggio = Assert.Single(sink.Messaggi);
-        Assert.Equal("prima", messaggio.Message);
-    }
-
-    /// <summary>
     /// ⚠️ Senza sink <b>non lancia</b>, ed è una scelta: far cadere il gioco perché nessuno
     /// ascolta i log sarebbe sproporzionato. Il test c'è perché è anche il modo in cui "non
     /// vedo i miei log" diventa un mistero — se qualcuno un giorno lo rende fatale, questo
