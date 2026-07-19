@@ -1,6 +1,7 @@
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
+using gEngine.Log;
 using gEngine.Physics;
 
 namespace gEngine.Ecs.System;
@@ -31,13 +32,61 @@ public class PhysicsSystem : ISimulationSystem
     private readonly Dictionary<int, BodyId> _bodiesByEntity = new();
     private readonly List<int> _orphaned = new();
 
-    public PhysicsSystem(IPhysicsWorld physics)
+    private readonly ILogger _logger;
+
+    public PhysicsSystem(IPhysicsWorld physics, ILogger logger)
     {
         _physics = physics;
+        _logger = logger;
     }
 
     public void OnCreate(World world)
     {
+    }
+
+    /// <summary>
+    /// Il system esce di scena: i corpi che ha creato escono con lui.
+    ///
+    /// Senza questo, togliere il PhysicsSystem dal pannello lasciava i corpi a simulare in
+    /// Bepu — e non "semplicemente non sincronizzati", come diceva il tooltip: la mappa
+    /// <see cref="_bodiesByEntity"/> è privata di questa istanza, quindi con il system fuori
+    /// dal registry quei corpi non erano più <b>raggiungibili da nessuno</b>. Continuavano a
+    /// collidere contro un mondo che non li vede.
+    ///
+    /// Si toglie anche il <see cref="PhysicsBodyComponent"/> dalle entità vive, per lo stesso
+    /// motivo per cui lo fa <see cref="RemoveOrphanedBodies"/>: è il link a un corpo che non
+    /// esiste più, e lasciandolo lì un system rimesso in seguito lo leggerebbe come "il corpo
+    /// c'è già" e non ne ricreerebbe nessuno. L'entità avrebbe un RigidBody e non cadrebbe.
+    ///
+    /// ⚠️ <b>Non</b> si tocca <see cref="_physics"/>: <c>IPhysicsWorld</c> è
+    /// <c>IDisposable</c>, ma è una Resource che il <b>gioco</b> possiede e passa al
+    /// costruttore. Disporlo qui vorrebbe dire che togliere un system dal pannello per
+    /// curiosità distrugge il mondo fisico di tutti — e "Ripristina" restituirebbe un system
+    /// agganciato a un oggetto morto. Si libera ciò che si è creato, non ciò che si è ricevuto.
+    /// </summary>
+    public void OnDestroy(World world)
+    {
+        // Info e non Debug: qui non è il gioco che gira, è qualcuno che ha tolto il system dal
+        // pannello. Il numero è il punto — dice che i corpi sono stati liberati davvero, che è
+        // esattamente la cosa che prima nessuno poteva sapere.
+        if (_bodiesByEntity.Count > 0)
+            _logger.Info(LogCategories.Physics,
+                $"PhysicsSystem rimosso: {_bodiesByEntity.Count} corpi liberati");
+
+        foreach (var (entityId, body) in _bodiesByEntity)
+        {
+            _physics.RemoveBody(body);
+
+            var entity = new Entity(entityId);
+            if (world.Exists(entity))
+                world.RemoveComponent<PhysicsBodyComponent>(entity);
+        }
+
+        // Simmetrico a OnCreate: la stessa istanza può essere rimessa dal pannello, e deve
+        // ripartire senza ricordarsi di corpi che ha appena tolto.
+        _bodiesByEntity.Clear();
+        _pending.Clear();
+        _orphaned.Clear();
     }
 
     public void OnUpdate(World world, float dt)
@@ -106,6 +155,14 @@ public class PhysicsSystem : ISimulationSystem
 
             _orphaned.Add(entityId);
         }
+
+        // ⚠️ Sotto la guardia, e non fuori: questo metodo gira a ogni passo fisso, cioè 60
+        // volte al secondo. Una riga incondizionata qui non sarebbe "log verboso", sarebbe una
+        // console inutilizzabile e un logger che costa quanto la simulazione. Si parla solo
+        // quando è successo qualcosa.
+        if (_orphaned.Count > 0)
+            _logger.Debug(LogCategories.Physics,
+                $"Riconciliazione: {_orphaned.Count} corpi orfani tolti dalla simulazione");
 
         // Fuori dal ciclo: stiamo modificando la stessa mappa che scorrevamo.
         foreach (var entityId in _orphaned)

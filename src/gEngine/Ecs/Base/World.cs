@@ -64,6 +64,37 @@ public class World
     }
 
     /// <summary>
+    /// Rimette in vita un'entità con l'id che <b>aveva</b>. È l'unica operazione che ha
+    /// diritto a un id già usato, e non è un'eccezione alla regola di
+    /// <see cref="DestroyEntity"/> ("gli id non si riusano"): quella vieta di dare l'id di
+    /// un'entità morta a una <b>diversa</b>, qui è la <b>stessa</b> che torna.
+    ///
+    /// Serve all'<b>undo</b> di un'eliminazione. L'alternativa — ricrearla con un id nuovo —
+    /// renderebbe l'annullamento una bugia: ogni riferimento a quell'entità resterebbe rotto
+    /// (il <see cref="Component.ParentComponent"/> di un figlio, la selezione dell'editor, i
+    /// comandi più vecchi nello stack), e "annulla" avrebbe rimesso in scena un sosia.
+    ///
+    /// ⚠️ Lancia se l'id è vivo: sarebbe un aliasing silenzioso, cioè due <c>Entity</c>
+    /// diverse per lo stesso id — il bug esatto che la regola sugli id esiste per impedire.
+    /// Il contatore non scende mai: se un giorno si ripristinasse un id più alto di quello
+    /// corrente, i prossimi id partono da lì.
+    /// </summary>
+    public Entity RestoreEntity(int id)
+    {
+        if (Entities.ContainsKey(id))
+            throw new InvalidOperationException(
+                $"L'entità {id} è viva: ripristinarla creerebbe due riferimenti allo stesso id.");
+
+        var entity = new Entity(id);
+        Entities.Add(id, entity);
+
+        if (id > _entityCounter)
+            _entityCounter = id;
+
+        return entity;
+    }
+
+    /// <summary>
     /// Svuota il World: nessuna entità, nessun componente. Serve a ricaricare una scena
     /// sopra quella corrente.
     ///
@@ -146,6 +177,19 @@ public class World
     {
         if (Storages.TryGetValue(typeof(T), out var storage))
             ((ComponentStorage<T>)storage).Remove(entity.Id);
+    }
+
+    /// <summary>
+    /// Variante <b>non generica</b>, gemella di <see cref="AddComponent(Entity, object)"/> e
+    /// <see cref="HasComponent(Entity, Type)"/>: il tipo esce da un elenco (il registry dei
+    /// componenti, o uno snapshot dell'undo), quindi non c'è nessun <c>T</c> da scrivere.
+    ///
+    /// Come l'overload generico, togliere un componente che non c'è non è un errore.
+    /// </summary>
+    public void RemoveComponent(Entity entity, Type componentType)
+    {
+        if (Storages.TryGetValue(componentType, out var storage))
+            storage.Remove(entity.Id);
     }
     
     

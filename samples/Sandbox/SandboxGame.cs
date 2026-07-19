@@ -8,6 +8,7 @@ using Sandbox.Components;
 using gEngine.Ecs.System;
 using gEngine.Editor;
 using gEngine.Input;
+using gEngine.Log;
 using gEngine.Physics;
 using gEngine.Rendering;
 using gEngine.Scenes;
@@ -119,7 +120,7 @@ public class SandboxGame() : IGame
         // saperlo: quando la compilazione fallisce non esiste nessun assembly, nessun system e
         // nessun componente da cui dedurre che sia successo qualcosa. Lo mostra il pannello
         // Scripts, che si apre da sé.
-        _scripts = ScriptCompiler.Compile(Path.Combine(AppContext.BaseDirectory, "assets", "scripts"));
+        _scripts = ScriptCompiler.Compile(Path.Combine(ContentRoot.Path, "assets", "scripts"));
         _resources.Add(_scripts);
 
         if (_scripts.Assembly is { } scriptAssembly)
@@ -133,7 +134,7 @@ public class SandboxGame() : IGame
 
         // Scena caricata da file: niente entità hardcoded qui. Luci, modelli (ModelPath) e
         // gerarchia (Parent) sono gestiti dai binder built-in dell'engine.
-        var scenePath = Path.Combine(AppContext.BaseDirectory, "assets", "scenes", "demo.json");
+        var scenePath = Path.Combine(ContentRoot.Path, "assets", "scenes", "demo.json");
         var scene = JsonSceneLoader.Load(scenePath);
         SceneInstantiator.Instantiate(scene, _world, registry, _assetManager);
 
@@ -164,7 +165,7 @@ public class SandboxGame() : IGame
 
         // I system dell'ENGINE restano espliciti: non sono script del gioco, e il gioco deve
         // poter scegliere quali far girare.
-        _systems.Add(new PhysicsSystem(_physics));
+        _systems.Add(new PhysicsSystem(_physics, resources.Get<ILogger>()));
 
         // LightingSystem PRIMA di MeshRenderSystem: carica le uniform delle luci prima di disegnare.
         _systems.Add(new LightingSystem());

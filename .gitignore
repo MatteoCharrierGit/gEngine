@@ -12,6 +12,16 @@ obj/
 # (quindi nel sorgente, non in bin/). È stato locale della finestra, non del progetto.
 imgui.ini
 
-# Sandbox: sprite/audio non redistribuibili esclusi, ma i dati di scena (JSON) sono tracciati
-# samples/Sandbox/assets/*
-# !samples/Sandbox/assets/scenes/
+# Sandbox: i binari degli asset stanno fuori da git. Non è (solo) una questione di licenza:
+# SummonersRift da sola pesa 506 MB e l'obj della FuturisticGirl altri 87, contro un repo da
+# 30 MB — e un .glb cambiato è un blob nuovo ogni volta, la storia non si rimpicciolisce più.
+# Chi clona si porta i modelli a mano; l'engine li cerca sotto ContentRoot.
+samples/Sandbox/assets/models/
+samples/Sandbox/assets/audio/
+
+# Restano tracciati apposta, e non sono un'eccezione distratta:
+# - scenes/*.json sono i dati di scena, cioè il documento su cui lavora l'editor;
+# - scripts/*.cs sono SORGENTI, non asset: dalla Fase 4.9 i system del Sandbox sono usciti dal
+#   .csproj e vivono lì, compilati a runtime. Senza, un clone pulito compila e parte inerte.
+# Non servono righe "!": si ignorano models/ e audio/, non assets/ — una negazione qui sarebbe
+# una regola che non fa niente e sembra farlo.

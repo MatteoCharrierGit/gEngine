@@ -8,6 +8,33 @@ public interface ISystem
     void OnUpdate(World world, float dt);
 
     /// <summary>
+    /// Il system sta per smettere di girare: qui libera ciò che ha <b>creato lui</b> e che
+    /// vive fuori dall'ECS.
+    ///
+    /// Era un debito teorico finché nessuno toglieva system. Il pannello Systems li fa
+    /// togliere <b>col mouse</b>, e senza questo metodo togliere il <c>PhysicsSystem</c>
+    /// lasciava i suoi corpi a simulare nel mondo Bepu senza che nessuno potesse più
+    /// raggiungerli — la mappa entità→corpo è privata del system, quindi con l'istanza fuori
+    /// dal registry quei corpi diventavano irrecuperabili, non solo non sincronizzati.
+    ///
+    /// ⚠️ <b>"Creato lui" è la riga che conta, e non è pignoleria.</b> Un system riceve le
+    /// sue dipendenze dal costruttore (<c>PhysicsSystem</c> riceve un <c>IPhysicsWorld</c>,
+    /// che è una Resource del gioco): quelle <b>non</b> vanno liberate qui. Toglierlo dal
+    /// pannello per curiosità farebbe crollare il mondo fisico anche per chi lo rimette, e
+    /// "Ripristina" restituirebbe un system agganciato a un oggetto morto. Si libera ciò che
+    /// si è allocato, non ciò che si è ricevuto.
+    ///
+    /// ⚠️ Va scritto <b>reidempotente e simmetrico a <see cref="OnCreate"/></b>: la stessa
+    /// istanza può essere tolta e rimessa più volte dal pannello, quindi <c>OnDestroy</c>
+    /// deve lasciarla in uno stato da cui <c>OnCreate</c> riparta pulita.
+    ///
+    /// Default vuoto (default interface member), come <see cref="MatchedComponents"/>: la
+    /// stragrande maggioranza dei system non possiede niente di esterno e non deve
+    /// dichiarare nulla, e un system scritto fuori dall'engine continua a compilare.
+    /// </summary>
+    void OnDestroy(World world) { }
+
+    /// <summary>
     /// I tipi di componente che un'entità deve avere <b>tutti</b> perché questo system la
     /// veda. È una <b>dichiarazione</b>, non un filtro: nessuno la usa per eseguire le
     /// query — dentro <c>OnUpdate</c> resta il normale <c>world.Query&lt;A, B&gt;()</c>,

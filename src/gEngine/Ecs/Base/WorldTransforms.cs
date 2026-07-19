@@ -138,7 +138,12 @@ public static class WorldTransforms
     /// le due formule divergessero si selezionerebbe un ingombro diverso da quello che si
     /// vede — e nessuno se ne accorgerebbe finché non prova a cliccare di striscio.
     /// </summary>
-    public static Matrix4x4 GetRenderMatrix(this World world, Entity entity, MeshRendererComponent meshRenderer)
+    /// <param name="meshRenderer">
+    /// ⚠️ <c>in</c> perché da quando è uno struct passarlo per valore ne copia una cinquantina
+    /// di byte, e questo metodo gira <b>per entità, per frame</b>. Legge un campo solo: la
+    /// copia sarebbe tutta sprecata.
+    /// </param>
+    public static Matrix4x4 GetRenderMatrix(this World world, Entity entity, in MeshRendererComponent meshRenderer)
     {
         return Matrix4x4.CreateScale(meshRenderer.Size) * world.GetWorldMatrix(entity);
     }

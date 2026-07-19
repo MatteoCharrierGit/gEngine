@@ -3,6 +3,8 @@ using gEngine.Core;
 using gEngine.Ecs;
 using gEngine.Ecs.Base;
 using gEngine.Editor.Scripting;
+using gEngine.Editor.Undo;
+using gEngine.Log;
 using gEngine.Scenes;
 
 namespace gEngine.Editor;
@@ -21,6 +23,17 @@ public class EditorContext
     /// Entità attualmente selezionata, o <c>null</c> se non c'è selezione.
     /// </summary>
     public Entity? Selected { get; set; }
+
+    /// <summary>
+    /// La pila dell'annulla, condivisa da tutti i pannelli.
+    ///
+    /// Sta qui e non nell'host per il motivo per cui esiste questa classe: l'annulla non
+    /// appartiene a nessun pannello e li riguarda tutti — la Hierarchy elimina, l'Inspector
+    /// modifica, i gizmi trascinano, e Ctrl+Z deve disfare l'ultima di quelle azioni chiunque
+    /// l'abbia fatta. ⚠️ Non nullable, al contrario delle Resource: quelle possono mancare
+    /// perché le dichiara il gioco, questa la costruisce l'editor per sé.
+    /// </summary>
+    public UndoStack Undo { get; } = new();
 
     /// <summary>
     /// L'infrastruttura del gioco, o <c>null</c> se il gioco non l'ha passata.
@@ -90,6 +103,19 @@ public class EditorContext
     public ScriptCompilation? Scripts =>
         Resources is { } resources && resources.TryGet<ScriptCompilation>(out var scripts)
             ? scripts
+            : null;
+
+    /// <summary>
+    /// Il buffer degli ultimi messaggi di log, se il gioco l'ha dichiarato (lo fa il
+    /// <c>GameLoop</c>, che lo attacca al logger prima ancora di aprire la finestra).
+    ///
+    /// ⚠️ Come per gli altri, <c>null</c> è un caso normale e va distinto da "nessun
+    /// messaggio": un gioco che costruisce il proprio loop può non averla registrata, e una
+    /// console vuota che dovrebbe dire "non lo so" è la bugia più facile da scrivere qui.
+    /// </summary>
+    public LogHistory? LogHistory =>
+        Resources is { } resources && resources.TryGet<LogHistory>(out var history)
+            ? history
             : null;
 
     public bool IsSelected(Entity entity)

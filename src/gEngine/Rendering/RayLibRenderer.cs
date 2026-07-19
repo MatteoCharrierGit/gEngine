@@ -1,5 +1,6 @@
-using System.Numerics;
+﻿using System.Numerics;
 using gEngine.Assets;
+using gEngine.Log;
 using Raylib_cs;
 
 namespace gEngine.Rendering;
@@ -9,6 +10,12 @@ public unsafe class RayLibRenderer : IRenderer
     private const int MaxLights = 7; // deve combaciare con MAX_LIGHTS in Shaders/lit.fs
 
     private readonly Mesh _unitCubeMesh;
+
+    // Sfera di raggio 0.5, cioe' inscritta nel cubo unitario: cosi' Scale = 1 da' un oggetto
+    // grande quanto un cubo di lato 1, e le due primitive sono confrontabili a colpo d'occhio.
+    // Rings/slices sono la risoluzione: 16x16 e' liscia a schermo e resta una mesh piccola -
+    // ne esiste UNA sola per tutta la scena, condivisa da ogni entita' che disegna una sfera.
+    private readonly Mesh _unitSphereMesh;
     private Material _defaultMaterial;
 
     // Sorgente dei modelli: l'altro adapter raylib. Serve a risolvere ModelHandle → Model
@@ -38,10 +45,14 @@ public unsafe class RayLibRenderer : IRenderer
     private readonly int[] _lightColorLoc = new int[MaxLights];
     private readonly int[] _lightIntensityLoc = new int[MaxLights];
 
-    public RayLibRenderer(RayLibAssetBackend assetBackend)
+    private readonly ILogger _logger;
+
+    public RayLibRenderer(RayLibAssetBackend assetBackend, ILogger logger)
     {
         _assetBackend = assetBackend;
+        _logger = logger;
         _unitCubeMesh = Raylib.GenMeshCube(1f, 1f, 1f);
+        _unitSphereMesh = Raylib.GenMeshSphere(0.5f, 16, 16);
         _defaultMaterial = Raylib.LoadMaterialDefault();
 
         SetupLightShader();
@@ -51,12 +62,44 @@ public unsafe class RayLibRenderer : IRenderer
         _defaultMaterial.Shader = _litShader;
     }
 
-    private static Shader LoadEngineShader(string vertexName, string fragmentName)
+    /// <summary>
+    /// ⚠️ Il secondo fallimento silenzioso dell'engine, dopo l'asset mancante.
+    ///
+    /// <c>LoadShader</c> su file mancante o GLSL che non compila <b>non lancia</b>: raylib
+    /// ricade sullo shader di default e restituisce quello. Il gioco parte e disegna — solo
+    /// senza illuminazione, con i volumi piatti. È un sintomo che assomiglia a "le luci sono
+    /// tarate male", cioè si va a cercare nel posto sbagliato.
+    ///
+    /// ⚠️ Il file si controlla <b>prima</b>, perché i due guasti vanno distinti: manca il file
+    /// (probabilmente non è stato copiato in output) è un'altra indagine rispetto a il file
+    /// c'è ma il GLSL non compila. Un solo messaggio per due cause manderebbe nella direzione
+    /// sbagliata metà delle volte.
+    /// </summary>
+    private Shader LoadEngineShader(string vertexName, string fragmentName)
     {
         var shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
-        return Raylib.LoadShader(
-            Path.Combine(shaderDir, vertexName),
-            Path.Combine(shaderDir, fragmentName));
+        var vertexPath = Path.Combine(shaderDir, vertexName);
+        var fragmentPath = Path.Combine(shaderDir, fragmentName);
+
+        foreach (var path in (string[])[vertexPath, fragmentPath])
+        {
+            if (!File.Exists(path))
+                _logger.Error(LogCategories.Renderer, $"Shader non trovato: '{path}'");
+        }
+
+        var shader = Raylib.LoadShader(vertexPath, fragmentPath);
+
+        // raylib ricade sullo shader di default, che è valido: quindi "valido" qui vuol dire
+        // "ne è uscito qualcosa", non "è il nostro". Il confronto con l'id di default è il
+        // solo modo di distinguere, e vale la pena perché è proprio il caso da segnalare.
+        if (!Raylib.IsShaderValid(shader))
+        {
+            _logger.Error(LogCategories.Renderer,
+                $"Shader '{vertexName}' + '{fragmentName}' non compilato: si disegna senza. " +
+                "Attenzione: la scena verra' fuori piatta, non e' un problema di luci.");
+        }
+
+        return shader;
     }
 
     // Nessuna uniform da agganciare: mvp e colDiffuse li mette raylib da sé, e di luci
@@ -210,6 +253,25 @@ public unsafe class RayLibRenderer : IRenderer
                 }
                 break;
 
+            case MeshKind.Sphere:
+                // Identico al cubo, mesh a parte: stessa trasposizione della matrice (vedi
+                // sopra il perche'), stesso material, stesso ramo wireframe. Passa dalla
+                // matrice di mondo COMPLETA, quindi rotazione e scala non uniforme funzionano
+                // - al contrario di Plane, che usa solo la traslazione.
+                var sphereWorld = Matrix4x4.Transpose(command.World);
+
+                _defaultMaterial.Maps[(int)MaterialMapIndex.Albedo].Color = color;
+                Raylib.DrawMesh(_unitSphereMesh, _defaultMaterial, sphereWorld);
+
+                if (command.Wireframe)
+                {
+                    _defaultMaterial.Maps[(int)MaterialMapIndex.Albedo].Color = Raylib_cs.Color.Black;
+                    Rlgl.EnableWireMode();
+                    Raylib.DrawMesh(_unitSphereMesh, _defaultMaterial, sphereWorld);
+                    Rlgl.DisableWireMode();
+                }
+                break;
+
             case MeshKind.Plane:
                 Raylib.DrawPlane(command.World.Translation, new Vector2(command.Size.X, command.Size.Z), color);
                 break;
@@ -314,6 +376,7 @@ public unsafe class RayLibRenderer : IRenderer
         Raylib.UnloadShader(_litShader);
         Raylib.UnloadShader(_unlitShader);
         Raylib.UnloadMesh(_unitCubeMesh);
+        Raylib.UnloadMesh(_unitSphereMesh);
         // NB: _defaultMaterial usa _litShader (già scaricato sopra). Non chiamiamo
         // UnloadMaterial per evitare un doppio-unload dello shader su alcune versioni
         // di raylib; al termine del processo la memoria è comunque liberata.

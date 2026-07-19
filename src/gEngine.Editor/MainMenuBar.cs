@@ -57,6 +57,12 @@ public class MainMenuBar(SceneDocument? document, PlayMode playMode)
                 ImGui.EndMenu();
             }
 
+            if (ImGui.BeginMenu("Edit"))
+            {
+                DrawEditMenu(world, context);
+                ImGui.EndMenu();
+            }
+
             if (ImGui.BeginMenu("Panels"))
             {
                 DrawPanelsMenu(panels);
@@ -83,12 +89,41 @@ public class MainMenuBar(SceneDocument? document, PlayMode playMode)
         DrawOpenPopup(context);
     }
 
+    /// <summary>
+    /// Annulla / Rifai, con dentro <b>il nome di ciò che si annulla</b>.
+    ///
+    /// Non è decorazione: "Annulla" da solo obbliga a premerlo per scoprire cosa fa, e in un
+    /// editor dove l'ultima azione può essere stata un trascinamento visto con la coda
+    /// dell'occhio è esattamente l'informazione che serve prima di premere. Le voci restano
+    /// <b>visibili e spente</b> quando non c'è niente da annullare, come le voci di File: un
+    /// menu che cambia forma è un menu in cui non si trova più niente.
+    /// </summary>
+    private static void DrawEditMenu(World world, EditorContext context)
+    {
+        var undo = context.Undo;
+
+        ImGui.BeginDisabled(!undo.CanUndo);
+        if (ImGui.MenuItem(undo.CanUndo ? $"Annulla {undo.UndoLabel}" : "Annulla", "Ctrl+Z"))
+            undo.Undo(world);
+        ImGui.EndDisabled();
+
+        ImGui.BeginDisabled(!undo.CanRedo);
+        if (ImGui.MenuItem(undo.CanRedo ? $"Rifai {undo.RedoLabel}" : "Rifai", "Ctrl+Y"))
+            undo.Redo(world);
+        ImGui.EndDisabled();
+    }
+
     private void DrawFileMenu(World world, EditorContext context)
     {
         if (ImGui.MenuItem("New Scene"))
         {
             world.Clear();
             context.ClearSelection();
+
+            // ⚠️ La storia va buttata con la scena: i comandi parlano di entità che non
+            // esistono più, e il loro Undo le farebbe rinascere dentro una scena a cui non
+            // appartengono. Vedi UndoStack.Clear.
+            context.Undo.Clear();
 
             if (document is not null)
             {
@@ -258,6 +293,9 @@ public class MainMenuBar(SceneDocument? document, PlayMode playMode)
 
             document!.Path = file;
             Run(document.Load, $"Scena caricata: {file}");
+
+            // Stessa ragione di New Scene: il World è stato sostituito in blocco.
+            context.Undo.Clear();
 
             ImGui.CloseCurrentPopup();
             break; // _found può essere ricostruita da qui in poi: non si continua a iterarla

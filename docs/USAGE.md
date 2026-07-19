@@ -1,9 +1,12 @@
 # gEngine — Guida all'uso
 
 Come si costruisce un gioco con gEngine allo stato attuale. Documenta ciò che
-**esiste ed è utilizzabile oggi** (non la roadmap futura — per quella vedi
-[`ROADMAP.md`](ROADMAP.md)). I riferimenti ai file usano path relativi alla radice
+**esiste ed è utilizzabile oggi**. I riferimenti ai file usano path relativi alla radice
 del repo.
+
+Gli altri documenti: [`ROADMAP.md`](ROADMAP.md) è cosa resta da fare,
+[`DA_RICORDARE.md`](DA_RICORDARE.md) le trappole e i limiti accettati,
+[`DECISIONI.md`](DECISIONI.md) il perché di ogni scelta già presa.
 
 ---
 
@@ -107,8 +110,9 @@ i **RenderSystem** sono separati dagli altri (§5).
 L'ECS è mini e fatto a mano (`src/gEngine/Ecs/`).
 
 - **Entity** (`Ecs/Base/Entity.cs`): `readonly record struct Entity(int Id)` — solo un id.
-- **Component**: normali `struct`/`class` di **dati puri**, senza logica. Es.
-  `TransformComponent`, `MeshRendererComponent`, `ParentComponent`.
+- **Component**: normali `struct` di **dati puri**, senza logica. Es. `TransformComponent`,
+  `MeshRendererComponent`, `ParentComponent`. ⚠️ `struct` e non `class`, tutti: vedi il gotcha
+  della copia più sotto e [`DA_RICORDARE.md`](DA_RICORDARE.md#ecs).
 - **World** (`Ecs/Base/World.cs`): contenitore. Ogni tipo di componente ha il suo
   storage (dizionario `entityId → component`).
 
@@ -143,7 +147,7 @@ foreach (var (entity, transform, mesh) in world.Query<TransformComponent, MeshRe
 
 ### ⚠️ Gotcha: componenti `struct` = copia
 
-Se un componente è una `struct`, `GetComponent`/la query restituiscono una **copia**.
+I componenti sono `struct`, quindi `GetComponent`/la query restituiscono una **copia**.
 Mutarla non tocca lo storage: devi **riscrivere** con `AddComponent` (fa da upsert):
 
 ```csharp
@@ -152,8 +156,8 @@ t.Position += velocity * dt;     // muta solo la COPIA locale
 world.AddComponent(e, t);        // write-back: senza questa riga la modifica è persa
 ```
 
-(`MeshRendererComponent` è oggi una `class`, quindi si comporta per riferimento — ma
-non fare affidamento sul tipo: tratta il write-back come la regola.)
+⚠️ Vale per **tutti**, senza eccezioni: `MeshRendererComponent` era l'ultima `class` del lotto
+ed è diventato `struct`. Il write-back è la regola, non un caso particolare.
 
 ---
 
@@ -187,7 +191,7 @@ registrerebbe sotto `IRenderer?`.
 marcarlo `[RuntimeState]` — cioè ammettere che non è dato d'autore. È lo split di Bevy
 (`Component`/`Resource`), e vale anche al contrario: la camera **di gioco** è un'entità
 (dato d'autore), la camera **di scena dell'editor** no (stato dell'editor). Vedi
-`ROADMAP.md` Fase 4.5.
+`DECISIONI.md` Fase 4.5.
 
 ---
 
@@ -381,7 +385,7 @@ public void Draw(IRenderer renderer)
 Aggiungi un `MeshRendererComponent` (dati puri) accanto a un `TransformComponent`:
 
 ```csharp
-public class MeshRendererComponent
+public struct MeshRendererComponent
 {
     public MeshKind Kind;      // Cube | Plane | Grid | Model
     public Vector3 Size;
@@ -466,14 +470,14 @@ non un oggetto persistente a cui restare agganciati.
 
 La camera con cui si **naviga nell'editor** è un'altra cosa e sta apposta fuori dal World
 (`EditorHost.SceneCamera`, mossa dal `FreeFlyCamera3DController` in `Rendering/Editor/`): è
-stato dell'editor, non dato di scena. Vedi `ROADMAP.md` Fase 4.5.
+stato dell'editor, non dato di scena. Vedi `DECISIONI.md` Fase 4.5.
 
 ---
 
 ## 8. Scene da file (data-driven)
 
 Una scena è un file JSON; il caricamento non conosce a priori i tipi di componente —
-usa un **registry di binder** (`Scenes/`). Vedi `ROADMAP.md` Fase 3 per il razionale.
+usa un **registry di binder** (`Scenes/`). Vedi `DECISIONI.md` Fase 3 per il razionale.
 
 ```csharp
 // 1) registra i binder: built-in dell'engine + eventuali custom del gioco
@@ -525,7 +529,7 @@ Un componente citato nel JSON ma senza binder registrato → errore **fail-fast*
 
 Il registry non serve solo al file: è anche **l'elenco dei tipi di componente che questo
 gioco ha**, ed è da lì che l'editor prende la lista di "Aggiungi componente". Perché una
-factory dichiarata e non un `default(T)` automatico: vedi `ROADMAP.md` Fase 4.7 — in breve,
+factory dichiarata e non un `default(T)` automatico: vedi `DECISIONI.md` Fase 4.7 — in breve,
 i componenti sono struct di dati nudi e `default(T)` è un default *rotto* (Transform con
 `Scale = 0` è invisibile, Light con `Intensity = 0` non illumina), quindi l'utente vedrebbe
 "componente aggiunto" e nessun effetto.
@@ -537,9 +541,10 @@ registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJ
 
 - **Il default va scelto perché si veda**, non perché compili: è il criterio con cui sono
   scritti quelli dell'engine (`RegisterEngineDefaults`).
-- ⚠️ Se il componente è una **class** (come `MeshRendererComponent`), la factory deve
-  costruirne uno **nuovo a ogni chiamata**: restituire un'istanza condivisa farebbe editare
-  lo stesso oggetto a tutte le entità che l'aggiungono.
+- ⚠️ La factory deve costruire un valore **nuovo a ogni chiamata**. Con i componenti `struct`
+  di oggi l'assegnamento copia e il pericolo non c'è, ma se un componente fosse una **class**
+  restituire un'istanza condivisa farebbe editare lo stesso oggetto a tutte le entità che
+  l'aggiungono — ed è già successo una volta.
 - Senza `createDefault` il componente **resta nell'elenco dell'editor ma spento, col
   motivo**: è il caso di `Parent`, dove è voluto (un genitore di default non esiste — ci si
   riparenta dalla Hierarchy).
@@ -665,6 +670,52 @@ posa dei corpi **dinamici** nel `TransformComponent`. I corpi `IsStatic` non si 
 
 ## 13. Logging
 
-`ILogger` + `ConsoleLogger` (`Log/`) con livelli (Debug/Info/Warn/Error), timestamp e
-categoria. `GameLoop` istanzia un logger internamente; l'esposizione comoda a
-`IGame`/ai system è ancora da completare (vedi `ROADMAP.md` Fase 0).
+Due porte, una per verso (`Log/`):
+
+- **`ILogger`** — chi **produce**. `Debug`/`Info`/`Warn`/`Error(categoria, messaggio)`, più
+  `MinimumLevel` come soglia.
+- **`ILogSink`** — chi **consuma**: riceve un `LogMessage` (timestamp, livello, categoria,
+  testo) **già filtrato**.
+
+`Logger` è l'implementazione dell'engine: applica la soglia una volta e fa **fan-out** su tutti
+i sink. `ConsoleLogSink` scrive sullo stdout, colorato per livello.
+
+Il `GameLoop` costruisce il logger, gli attacca il sink di stdout e lo **registra sotto la
+porta**:
+
+```csharp
+resources.Add<ILogger>(logger);
+```
+
+Quindi si legge da qualunque `IGame.Init(Resources)`:
+
+```csharp
+var logger = resources.Get<ILogger>();
+logger.Info(LogCategories.Ecs, "scena caricata");
+```
+
+...e un system scoperto da `ScriptDiscovery` può chiederlo **nel costruttore**, come ogni altra
+Resource:
+
+```csharp
+[GameSystem(Order = 10)]
+public class MioSystem(ILogger logger) : ISimulationSystem { /* ... */ }
+```
+
+Per aggiungere un destinatario (un pannello, un file) si implementa `ILogSink` e lo si registra
+con `AddSink`; nessuna riga che chiama `Info(...)` cambia.
+
+⚠️ Il logger **non tiene storia**: un sink registrato dopo non vede quel che è già passato. ⚠️
+Non è thread-safe, per scelta — vedi [`DA_RICORDARE.md`](DA_RICORDARE.md#logging).
+
+**La storia** ce l'ha `LogHistory`, un sink con buffer circolare (500 messaggi di default) che
+il `GameLoop` attacca prima ancora di aprire la finestra e dichiara come Resource. È da lì che
+la **Console dell'editor** legge — anche le righe scritte prima che l'editor esistesse:
+
+```csharp
+var history = resources.Get<LogHistory>();
+foreach (var message in history.Messages) { /* dal piu' vecchio al piu' recente */ }
+```
+
+Nell'editor la Console è un pannello acceso di default: filtra per livello, per categoria e per
+testo, e si tira su da sé quando arriva un errore nuovo.

@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Core;
 using gEngine.Ecs.Base;
+using gEngine.Editor.Files;
 using gEngine.Editor.Panels;
 using gEngine.Input;
 using gEngine.Rendering;
@@ -214,7 +215,9 @@ public class EditorHost
         // convenzione avrebbe solo dato modo di sbagliarla. ⚠️ Se un gioco terrà i suoi asset
         // altrove, questo è il punto da aprire — il pannello dice già "cartella non trovata"
         // invece di far finta di niente.
-        _panels.Add(new FileSystemPanel(Path.Combine(AppContext.BaseDirectory, "assets")));
+        _panels.Add(new FileSystemPanel(
+            Path.Combine(ContentRoot.Path, "assets"),
+            FileTrash.ForCurrentPlatform()));
 
         // Gli ultimi due nascono spenti (vedi i loro costruttori): sono nella lista perché è
         // da lì che il menu Panels li elenca — un pannello che non è registrato qui non ha
@@ -226,6 +229,12 @@ public class EditorHost
         // uno script non compila: e' l'unico pannello a cui e' concesso, perche' ha da dire una
         // cosa che l'utente non sa ancora di dover chiedere. Vedi ScriptsPanel.
         _panels.Add(new ScriptsPanel());
+
+        // La Console nasce ACCESA, al contrario degli altri: non e' un inventario che si
+        // consulta quando serve, e' il flusso di cio' che il gioco sta facendo. Un log che
+        // bisogna ricordarsi di aprire e' un log che si guarda solo dopo aver gia' perso tempo
+        // a cercare altrove. Come lo ScriptsPanel si tira su da se' su un errore nuovo.
+        _panels.Add(new ConsolePanel());
 
         _menuBar = new MainMenuBar(document, PlayMode);
 
@@ -286,7 +295,44 @@ public class EditorHost
         foreach (var panel in _panels)
             panel.Draw(world, Context, renderer);
 
+        // Dopo i pannelli: le scorciatoie non devono rubare il tasto a chi lo stava usando nel
+        // frame corrente. Vedi DrawUndoShortcuts.
+        DrawUndoShortcuts(world);
+
         rlImGui.End();
+    }
+
+    /// <summary>
+    /// Ctrl+Z / Ctrl+Y, e Ctrl+Shift+Z perché mezzo mondo rifà così.
+    ///
+    /// ⚠️ <b>Non mentre si scrive in un campo di testo</b>: dentro un <c>InputText</c> ImGui ha
+    /// il <b>suo</b> annulla, che è quello che ci si aspetta lì (disfa le lettere, non l'ultima
+    /// entità creata). Rubargli il tasto vorrebbe dire che rinominare un'entità e sbagliare una
+    /// lettera annulla qualcos'altro nella scena. <c>WantTextInput</c> è il segnale giusto, ed è
+    /// più stretto di <c>WantCaptureKeyboard</c>: quest'ultimo è vero ogni volta che una
+    /// finestra ImGui ha il fuoco, cioè quasi sempre — e le scorciatoie non funzionerebbero mai.
+    ///
+    /// Le maiuscole non c'entrano: <c>ImGuiKey.Z</c> è il tasto fisico.
+    /// </summary>
+    private void DrawUndoShortcuts(World world)
+    {
+        var io = ImGui.GetIO();
+
+        if (io.WantTextInput || !io.KeyCtrl)
+            return;
+
+        var shift = io.KeyShift;
+
+        if (ImGui.IsKeyPressed(ImGuiKey.Z, repeat: true))
+        {
+            if (shift)
+                Context.Undo.Redo(world);
+            else
+                Context.Undo.Undo(world);
+        }
+
+        if (ImGui.IsKeyPressed(ImGuiKey.Y, repeat: true))
+            Context.Undo.Redo(world);
     }
 
     public void Shutdown()

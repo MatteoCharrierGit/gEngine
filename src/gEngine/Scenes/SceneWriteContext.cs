@@ -1,4 +1,4 @@
-using gEngine.Assets;
+﻿using gEngine.Assets;
 using gEngine.Ecs.Base;
 
 namespace gEngine.Scenes;
@@ -33,6 +33,6 @@ public sealed class SceneWriteContext
 
         throw new InvalidOperationException(
             $"Impossibile salvare il riferimento '{referenceKind}' verso l'entità {entity.Id}: non ha un nome. " +
-            "I riferimenti fra entità nel file di scena sono per nome — dalle un nome (campo Name nell'Inspector) e risalva.");
+            "I riferimenti fra entità nel file di scena sono per nome - dalle un nome (campo Name nell'Inspector) e risalva.");
     }
 }

@@ -16,7 +16,10 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
     private float _gameAccumulator = 0;
     private const float FixedDeltaTime = 1f / 60;
 
-    private readonly ILogger _logger = new ConsoleLogger();
+    // Il logger nasce con un sink sullo stdout. Gliene si aggiungono altri dall'esterno
+    // (la console dell'editor) senza che nessun chiamante di Info/Warn/Error cambi.
+    private readonly Logger _logger = new Logger();
+    private readonly LogHistory _history = new LogHistory();
     private IRenderer? _renderer = null;
     private AssetManager? _assetManager = null;
     private InputHandler _inputHandler = new InputHandler();
@@ -28,6 +31,24 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
 
     public void Run()
     {
+        // ⚠️ ORDINE: il logger si registra PRIMA di InitWindow, al contrario di tutto il resto.
+        // Non è una svista simmetrica all'ordine imposto più sotto: è il motivo opposto. Gli
+        // altri servizi non POSSONO esistere a finestra chiusa (tengono risorse GPU); il logger
+        // non ha quel vincolo, e registrarlo insieme a loro renderebbe muto proprio l'avvio —
+        // cioè il pezzo di vita del programma in cui è più probabile che qualcosa vada storto
+        // e in cui, non essendoci ancora una finestra, il log è l'unica cosa che parla.
+        _logger.AddSink(new ConsoleLogSink());
+
+        // La storia si attacca QUI per lo stesso motivo per cui il logger si registra prima di
+        // InitWindow: la console dell'editor nasce dentro Game.Init, cioè a finestra già
+        // aperta. Se il buffer nascesse con lei, mostrerebbe tutto tranne l'avvio.
+        // ⚠️ Registrata sotto il tipo concreto e non sotto ILogSink: chi la cerca vuole
+        // *questa* (per rileggerla), non "un destinatario qualunque" — e i sink sono N mentre
+        // le Resource sono una per tipo.
+        _logger.AddSink(_history);
+        _resources.Add<ILogger>(_logger);
+        _resources.Add<LogHistory>(_history);
+
         Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);
 
@@ -36,11 +57,13 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
         Raylib.InitAudioDevice();
         Raylib.SetTargetFPS(60);
 
+        _logger.Info(LogCategories.Window, $"Finestra {WindowWidth}x{WindowHeight} - {Title}");
+
         // GameLoop possiede i due adapter raylib e li collega: il renderer risolve i
         // ModelHandle attraverso lo stesso backend che carica gli asset.
         var assetBackend = new RayLibAssetBackend();
-        _assetManager = new AssetManager(AppContext.BaseDirectory, "assets", assetBackend);
-        _renderer = new RayLibRenderer(assetBackend);
+        _assetManager = new AssetManager(ContentRoot.Path, "assets", assetBackend, _logger);
+        _renderer = new RayLibRenderer(assetBackend, _logger);
 
         // ⚠️ ORDINE: la registrazione sta QUI e non prima di InitWindow perché renderer e
         // AssetManager tengono risorse GPU e non possono esistere a finestra chiusa. Ed è
@@ -54,6 +77,7 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
         _resources.Add<IRenderer>(_renderer);
 
         Game.Init(_resources);
+        _logger.Info(LogCategories.Engine, "Gioco inizializzato");
 
         while (!Raylib.WindowShouldClose())
         {
@@ -68,6 +92,8 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
 
             Game.Draw(_renderer);
         }
+
+        _logger.Info(LogCategories.Engine, "Chiusura");
 
         Game.Shutdown();
         _assetManager?.UnloadAll();   // scarica le risorse GPU prima di chiudere la finestra

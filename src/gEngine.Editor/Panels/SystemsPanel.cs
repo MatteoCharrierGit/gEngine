@@ -174,13 +174,20 @@ public class SystemsPanel : PanelBase
         if (ImGui.MenuItem("Rimuovi"))
             _toRemove = system;
 
-        // ⚠️ Il prezzo è dichiarato qui e non scoperto dopo: ISystem non ha un OnDestroy, e
-        // un system che possiede roba fuori dall'ECS non la libera uscendo dal registry.
+        // ⚠️ Questo tooltip diceva "non è un OnDestroy - ISystem non ce l'ha". Adesso ce l'ha
+        // (il registry lo chiama uscendo), quindi la frase è cambiata invece di restare a
+        // mentire. Il limite vero è un altro ed è dichiarato qui sotto: quel che il system
+        // libera dipende da lui.
         HelpMarker(
-            "Toglie il system da tutte le sue fasi: smette di girare subito.\n\n" +
-            "Attenzione: Non è un OnDestroy - ISystem non ce l'ha. Un system che possiede risorse\n" +
-            "esterne non le libera: togliere il PhysicsSystem lascia i corpi nel mondo\n" +
-            "Bepu, semplicemente nessuno li sincronizza più.\n\n" +
+            "Toglie il system da tutte le sue fasi: smette di girare subito, e riceve\n" +
+            "OnDestroy per liberare quel che possiede fuori dall'ECS. Il PhysicsSystem\n" +
+            "toglie i suoi corpi dal mondo Bepu.\n\n" +
+            "Attenzione: OnDestroy libera solo ciò che il system ha CREATO, non ciò che ha\n" +
+            "ricevuto: le Resource del gioco (il mondo fisico, l'input) restano in piedi,\n" +
+            "o rimettere il system lo aggancerebbe a un oggetto morto.\n\n" +
+            "Attenzione: un system scritto senza OnDestroy non libera niente - il default\n" +
+            "dell'interfaccia e' vuoto. Toglierlo e' sicuro per l'ECS, non per quel che\n" +
+            "il system tiene da parte.\n\n" +
             "L'istanza resta qui sotto, in \"Rimossi\", e si può rimettere.");
 
         ImGui.EndPopup();
@@ -200,9 +207,9 @@ public class SystemsPanel : PanelBase
             "l'ordine conta - ripristinare il LightingSystem lo mette dopo il MeshRenderSystem,\n" +
             "cioè le luci arriverebbero dopo le mesh che dovevano illuminare.\n\n" +
             "L'elenco qui sopra lo mostra subito: il numero della riga è la verità.\n\n" +
-            "Attenzione: Ripristinare richiama anche OnCreate sulla stessa istanza (Add lo fa sempre).\n" +
-            "Oggi tutti gli OnCreate sono vuoti, quindi non si vede - ma è un'istanza già\n" +
-            "creata che riceve una seconda creazione, non un system nuovo.");
+            "Ripristina richiama OnCreate sulla stessa istanza. Non è più la stonatura che\n" +
+            "era: adesso Rimuovi chiama OnDestroy, quindi i due si fanno il paio e l'istanza\n" +
+            "riparte da uno stato pulito - il PhysicsSystem ricrea i corpi al primo update.");
 
         // "removed" e non l'indice nudo: questa lista convive nella stessa finestra con le
         // righe delle fasi, che usano già gli indici. Vedi il commento in DrawPhase.
