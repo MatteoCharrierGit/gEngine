@@ -1,6 +1,7 @@
 using System.Numerics;
 using gEngine.Core;
 using gEngine.Ecs.Base;
+using gEngine.Editor.Files;
 using gEngine.Editor.Panels;
 using gEngine.Input;
 using gEngine.Rendering;
@@ -214,7 +215,9 @@ public class EditorHost
         // convenzione avrebbe solo dato modo di sbagliarla. ⚠️ Se un gioco terrà i suoi asset
         // altrove, questo è il punto da aprire — il pannello dice già "cartella non trovata"
         // invece di far finta di niente.
-        _panels.Add(new FileSystemPanel(Path.Combine(ContentRoot.Path, "assets")));
+        _panels.Add(new FileSystemPanel(
+            Path.Combine(ContentRoot.Path, "assets"),
+            FileTrash.ForCurrentPlatform()));
 
         // Gli ultimi due nascono spenti (vedi i loro costruttori): sono nella lista perché è
         // da lì che il menu Panels li elenca — un pannello che non è registrato qui non ha

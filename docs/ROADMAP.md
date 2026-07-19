@@ -1467,6 +1467,95 @@ font di default copre solo Latin-1, quindi uscivano come `?`. Corretti in `-`, c
 
 ---
 
+## Fase 4.88 — Il disco si può modificare, perché sotto c'è il cestino 🟢🟡
+
+Punto 2 del piano. Il pannello File system sapeva solo **leggere**: creare, rinominare ed
+eliminare erano bloccati, e non per pigrizia — *«l'undo dell'editor copre il World, non il
+disco»*. Un comando in memoria non resuscita un file. Prima del bottone serviva la rete.
+
+### La rete: `IFileTrash`, e chi non ce l'ha non elimina
+
+- [x] **`IFileTrash`** (`src/gEngine.Editor/Files/`) — porta verso il cestino del sistema,
+  stesso schema di `IRenderer`/`IAssetBackend`/`IPhysicsWorld`
+- [x] **`RecycleBinTrash`** su Windows
+- [x] ⚠️⚠️ **Chi non ha un cestino NON elimina**: la ricaduta su una piattaforma senza cestino
+  è `Available = false`, **non** `File.Delete`. Cancellare davvero sarebbe l'unica operazione
+  irreversibile dell'editor, offerta proprio dove la rete manca. Il comando resta **spento col
+  motivo**, e c'è un test che fallisce se un giorno diventasse "tanto è lo stesso"
+
+⚠️ **Sì, l'implementazione usa `Microsoft.VisualBasic.FileIO`**, e non è un errore di
+copiatura: è l'unico modo documentato di raggiungere il Cestino da .NET senza scrivere a mano
+`SHFileOperation` di shell32 — struct marshalata, stringa a doppio terminatore nullo e un
+allineamento che su x64 si sbaglia **in silenzio**. `Microsoft.VisualBasic.Core` è nel
+framework condiviso: nessun pacchetto in più. Il namespace è brutto, il P/Invoke che non c'è è
+meglio di quello che c'è.
+
+⚠️ **Verificato che il file finisca DAVVERO nel Cestino**, non solo che sparisca: ritrovato fra
+gli elementi del Cestino, con la sua cartella d'origine. Dal lato del chiamante le due cose si
+assomigliano; per l'utente sono opposte.
+
+### Le regole stanno fuori dal pannello
+
+`AssetFiles` tiene creare / rinominare / eliminare. Sta lì e non nel pannello per lo stesso
+motivo per cui `EntityOperations` non sta nella Hierarchy: sono **politiche**, e sono la parte
+che un test può interrogare senza aprire una finestra.
+
+- [x] ⚠️⚠️ **Niente esce dalla radice.** Il pannello dice "assets" e deve mantenerlo. Si
+  confronta il percorso **risolto** (`Path.GetFullPath` normalizza i `..`), mai la stringa
+  scritta
+  - ⚠️ Il separatore finale nel confronto **non è cosmesi**: senza, `assets2` risulterebbe
+    "dentro" `assets` per semplice prefisso di stringa. C'è un test apposta
+- [x] ⚠️ **Rinominare cambiando solo le maiuscole è permesso**: su Windows il file system è
+  insensibile al caso, quindi un controllo "esiste già" ingenuo vieterebbe proprio
+  `Texture.png` → `texture.png`, che è fra i motivi più comuni per rinominare
+- [x] Gli errori sono **valori di ritorno** (`FileResult`), non eccezioni: queste operazioni
+  partono da un clic dentro un frame di disegno, dove un'eccezione che sale è una finestra che
+  sparisce — e i modi di fallire sono tutti casi normali che l'utente può correggere
+- [x] Le mutazioni si applicano a **fine frame**: modificare il disco mentre si scorre
+  `EnumerateFiles` sulla stessa cartella è il modo sicuro per far cadere il disegno. Stesso
+  schema del pannello Systems
+- [x] ⚠️ **Rinominare un asset rompe i riferimenti nelle scene** (il `ModelPath` è quel
+  percorso e nessuno lo riscrive). Dichiarato nel tooltip del rinomina, non nascosto: sistemarlo
+  vorrebbe dire conoscere **tutte** le scene, e l'editor ne tiene aperta una
+
+### ⚠️⚠️ Il bug che si vedeva solo guardando: `OpenPopup` e l'ID stack
+
+Scritto tutto e compilato senza warning, **dal menu contestuale "Elimina" non faceva niente**.
+Nessun errore, nessun log, nessun crash: il comando semplicemente non produceva la modale.
+
+La causa: `OpenPopup` e `BeginPopupModal` si accordano su un **id calcolato nell'ID stack
+corrente**. Chiamando `OpenPopup("Elimina")` da dentro il menu contestuale — che è a sua volta
+un popup, cioè un livello più in basso — l'id non è lo stesso che `BeginPopupModal("Elimina")`
+calcola a livello di finestra. Dalla **barra degli strumenti** funzionava (lì si è già a livello
+di finestra), dal menu contestuale no; rileggendo il codice i due rami sono identici.
+
+Corretto rimandando l'apertura al livello di finestra (`_opening`). ⚠️ È il genere di cosa che
+nessun test di quelli scritti qui avrebbe preso: la logica era giusta, era l'aggancio a ImGui a
+non esserlo. **La UI si verifica guardandola** — questo è il caso che lo dimostra.
+
+### Come è stato verificato
+
+Rig di `PostMessage` sulla finestra viva (vedi l'handoff), giro completo end-to-end: creata una
+cartella dall'interfaccia → **comparsa senza riavviare** → clic destro → Elimina → conferma →
+sparita dal disco → **ritrovata nel Cestino con l'origine giusta**.
+
+⚠️ **Trappola del rig, costata tre giri a vuoto**: `FindWindow(null, "gEngine Sandbox")`
+restituisce **0**, perché il titolo della finestra è `Game`. I `PostMessage` andavano a un
+handle nullo e non succedeva niente — che è indistinguibile da "il codice non funziona". Usare
+`Process.MainWindowHandle`.
+
+- [x] 20 test su `AssetFiles` (confine della radice, nomi degeneri, collisioni, maiuscole,
+  cestino assente), più il controllo che i messaggi d'errore stiano in **Latin-1** — finiscono
+  sotto ImGui, che col font di default mostra `?` per tutto il resto
+
+### Cosa resta del punto 2
+
+**"Creare oggetti dei tipi basilari"** non è stato fatto: vedi l'handoff, è l'unica parte del
+punto 2 su cui il testo si presta a due letture diverse (un'entità cubo/luce/camera è roba
+della Hierarchy, non della cartella asset) e va decisa, non indovinata.
+
+---
+
 ## Fase 5 — Profondità 3D: asset, materiali, luci, fisica 🔴
 
 Da "cubi colorati" a "scena 3D vera".

@@ -1,4 +1,4 @@
-# Handoff — ripresa lavori editor/ECS
+﻿# Handoff — ripresa lavori editor/ECS
 
 > File di passaggio di consegne fra sessioni. **Non è documentazione del progetto**: quando i
 > task qui sotto sono chiusi, questo file va cancellato. La documentazione vera è
@@ -8,13 +8,15 @@
 
 Lavoro su branch `feat/editor-mvp`, tutto committato.
 Build: `dotnet build gEngine.slnx --nologo -v q --no-incremental` → **0 errori, 0 warning**.
-Test: `dotnet test tests/gEngine.Tests` → **25 verdi**.
+Test: `dotnet test tests/gEngine.Tests` → **53 verdi**.
 Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo chiude).
 
-**I quattro buchi da chiudere prima del piano sono chiusi tutti e quattro.** La prossima cosa è
-il **punto 2 del piano** (FileSystem completo), che è a metà: mancano le mutazioni su disco
-(creare/rinominare/eliminare), il **Cestino di Windows** che deve fare da rete sotto "elimina"
-(l'undo copre il World, non il disco), e "crea oggetti dei tipi basilari" da lì.
+**I quattro buchi da chiudere prima del piano sono chiusi tutti e quattro**, e del piano il
+**punto 2** (FileSystem completo) è fatto salvo un pezzo: il disco si modifica e sotto
+"elimina" c'è il cestino (Fase 4.88). Di quel punto resta *«creare oggetti dei tipi basilari»*,
+che è **una decisione da prendere, non del lavoro da fare** — vedi il punto 2 più sotto.
+
+Poi si riprende dal **punto 1** (Console in-editor), che è ancora intero.
 
 ⚠️ **I binari degli asset sono fuori da git** — decisione presa dal proprietario, niente Git
 LFS. `.gitignore` esclude `assets/models/` e `assets/audio/`; i 29 MB che erano già tracciati
@@ -51,13 +53,17 @@ usciti dal `.csproj` e vivono lì.
   scena non è serializzabile non si parte: fallendo al Play si perde un clic, fallendo allo
   Stop si perde il lavoro). Con questo **la Fase 4 è chiusa**.
 
-### Fatto nell'ultima sessione (tre commit)
+### Fatto nell'ultima sessione (quattro commit)
 
 1. **I binari degli asset fuori da git** (vedi il riquadro qui sopra).
 2. **Il primo progetto di test** (buco C) — `tests/gEngine.Tests`. ⚠️ Da lì è uscita la cosa
    più importante della sessione: **il round-trip da solo non verifica niente**. Vedi il punto C.
 3. **`ISystem.OnDestroy`** (buco D), e la scoperta che il danno era peggio di come lo
    raccontava il tooltip. Vedi il punto D.
+4. **Il disco si modifica** (punto 2 del piano) — creare/rinominare/eliminare col **Cestino**
+   come rete. ⚠️ E un bug che nessun test avrebbe preso: `OpenPopup` chiamata dentro un menu
+   contestuale **non apre niente**, perché l'id si calcola nell'ID stack corrente. Dalla barra
+   funzionava, dal menu no, e i due rami rileggendoli sono identici. Vedi `ROADMAP.md` Fase 4.88.
 
 ### Fatto nella sessione precedente (i cinque commit)
 
@@ -108,6 +114,16 @@ usciti dal `.csproj` e vivono lì.
   scandendo i sorgenti per i caratteri `> 0xFF` nelle righe non di commento, non rileggendoli.
 - ⚠️ Un bottone a larghezza piena (`-1`) seguito da `SameLine` spinge l'etichetta **fuori dal
   pannello**. Per allinearsi agli altri campi: `ImGui.CalcItemWidth()`.
+- ⚠️⚠️ **`OpenPopup` e `BeginPopupModal` devono stare allo STESSO livello di ID stack**, o la
+  modale non si apre — e non c'è nessun errore, nessun log, nessun assert: il comando
+  semplicemente non fa niente. Chiamare `OpenPopup("X")` da dentro un menu contestuale (che è a
+  sua volta un popup) e `BeginPopupModal("X")` a livello di finestra è il caso vivo: dalla barra
+  degli strumenti funzionava, dalla stessa voce nel menu no. Si rimanda l'apertura al livello di
+  finestra con un campo. Fase 4.88.
+- ⚠️ **Il titolo della finestra del Sandbox è `Game`, non "gEngine Sandbox"**:
+  `FindWindow(null, "gEngine Sandbox")` restituisce **0** e i `PostMessage` del rig vanno a un
+  handle nullo, cioè non succede niente — indistinguibile da "il codice non funziona". Sono
+  costati tre giri a vuoto. Usa `Process.MainWindowHandle`.
 
 ### Come si guarda la UI (il rig di verifica, ricostruibile)
 
@@ -251,18 +267,26 @@ Fase 0 e ancora lì: *«`GameLoop` istanzia `_logger` ma non lo passa mai a `IGa
 prima di avere una console serve che il logger sia raggiungibile, e le `Resources` sono il
 posto (`resources.Add<ILogger>(...)`).
 
-**2. FileSystem completo.** *(l'undo che lo bloccava ora c'è — ma copre il World, non il disco:
-per "elimina file" serve il Cestino di Windows, deciso col proprietario.)*
-⚠️ **Metà è fatta** (Fase 4.85): il pannello è a griglia con anteprime, e `ContentRoot` ha
-chiuso il bug per cui l'editor guardava la copia degli asset in `bin/` — quindi ora un file
-copiato da Explorer si vede subito **e il Salva scrive nel file versionato**. Restano le
-mutazioni su disco (creare/rinominare/eliminare) e il cestino. Creare/rinominare/eliminare davvero + **creare oggetti dei tipi
-basilari direttamente da lì**. ⚠️ La parte "crea oggetti" incrocia il `SceneComponentRegistry`:
-un "cubo" è un'entità con Transform + MeshRenderer coi default della Fase 4.7 — cioè
-`EntityOperations.Create` + due `TryCreateDefault`, non codice nuovo. ⚠️ La parte "elimina" è
-quella che non ha rete. ⚠️ **L'undo ora c'è ma NON copre il disco** (il punto B è chiuso): un
-comando in memoria non resuscita un file. Prima di scrivere quel bottone serve il **Cestino di
-Windows**, deciso col proprietario come rete separata.
+**2. FileSystem completo.** 🟢🟡 **Quasi tutto fatto.**
+- Fase 4.85: griglia con anteprime, e `ContentRoot` ha chiuso il bug per cui l'editor guardava
+  la copia degli asset in `bin/`.
+- Fase 4.88: **il disco si modifica** — creare cartelle, rinominare, eliminare — e sotto
+  "elimina" c'è il **Cestino** (`IFileTrash`). ⚠️ Chi non ha un cestino **non elimina**: la
+  ricaduta non è `File.Delete`, è il comando spento col motivo. Regole in `AssetFiles`, 20 test.
+  ⚠️ Da lì è uscito un bug che nessun test avrebbe preso — `OpenPopup` chiamata dentro un menu
+  contestuale non apre niente, perché l'id si calcola nell'ID stack corrente. Vedi `ROADMAP.md`
+  **Fase 4.88**, e **leggila prima di aggiungere modali** in un pannello.
+
+⚠️ **Resta**: *«creare oggetti dei tipi basilari direttamente da lì»*. Non è stato fatto perché
+la frase si presta a **due letture diverse** e la differenza è dove va il codice:
+- un'entità cubo/luce/camera è roba della **Hierarchy** (che già crea entità e ha l'aggancio
+  all'undo), non della cartella asset — in Unity il pannello dei file crea *asset*, la gerarchia
+  crea *oggetti di scena*;
+- oppure si intende davvero un comando "crea un cubo in scena" dentro il pannello File system.
+
+Il meccanismo è lo stesso in entrambi i casi e non è codice nuovo — `EntityOperations.Create` +
+due `TryCreateDefault` dal `SceneComponentRegistry` — quindi la domanda è solo **dove**. Da
+decidere col proprietario, non da indovinare.
 
 **3. Interfaccia per l'InputHandler e per i system.** L'`InputHandler` è una classe concreta e i
 system se la prendono nel costruttore: è l'ultima dipendenza del gioco che non passa da una
@@ -305,8 +329,9 @@ sono tarati sui 13px di ProggyClean) e riguardato tutto a video. Non è un ritoc
 Vedi la sezione Scripting più sotto: c'è già l'ostacolo individuato (`World.Clear()` non
 lascia andare gli storage).
 
-### Il buco del FileSystem
-Vedi il punto 2 qui sopra: oggi il disco è in sola lettura.
+### ~~Il buco del FileSystem~~ chiuso
+Il disco si modifica (Fase 4.88). Resta la sola domanda "dove vanno i comandi per creare
+oggetti di scena": vedi il punto 2.
 
 ### Scripting: la strada è decisa, il primo strato è fatto
 
@@ -367,11 +392,10 @@ per anni). **Da decidere, non da scoprire a metà lavoro.**
 **Cassato dal proprietario**: basta aprire l'IDE sulla cartella degli asset. Non serve la
 lookup tipo → file sorgente (che avrebbe voluto dire leggere il PDB).
 
-### Task 6 — gestione file reale nel FileSystemPanel
-Il pannello ora trascina, **mostra a griglia con anteprime** e vede i file nuovi senza riavviare
-(vedi `ContentRoot`), ma il disco resta in **sola lettura**: niente creare / rinominare /
-eliminare. ⚠️ Non è più "manca l'undo": l'undo c'è e copre il World, non il disco. Quel che
-manca sotto "elimina" è il **cestino**.
+### ~~Task 6 — gestione file reale nel FileSystemPanel~~ fatto (Fase 4.88)
+Il pannello trascina, mostra a griglia con anteprime, vede i file nuovi senza riavviare e
+adesso **scrive**: crea cartelle, rinomina, elimina. Sotto "elimina" c'è il cestino del
+sistema, e senza cestino il comando non si accende.
 
 ### Slot per asset diversi da `Model`
 `DrawAssetSlot` gestisce solo `AssetKind.Model` e **lo dice** (`<slot Texture: non ancora
@@ -409,8 +433,10 @@ ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe.
   comportamento, quindi resta un limite reale. *(La seconda metà — `OnCreate` richiamato su
   un'istanza già creata — non è più un debito: da Fase 4.87 `Rimuovi` chiama `OnDestroy` e i due
   si fanno il paio.)*
-- ~~Niente undo, da nessuna parte.~~ **Fatto** (Fase 4.8). ⚠️ Resta scoperto il **disco**: il
-  FileSystemPanel non ha ancora un cestino, e lo stack non può coprirlo.
+- ~~Niente undo, da nessuna parte.~~ **Fatto** (Fase 4.8). ⚠️ Il **disco** resta fuori
+  dall'undo, e resterà: la rete lì è il cestino del sistema (Fase 4.88), non lo stack — un
+  comando in memoria non resuscita un file. Ctrl+Z non annulla un'eliminazione di file, e la
+  modale di conferma lo dice.
 - **Lo slot degli asset non conosce `Kind`**: un modello su un `MeshRenderer` con `Kind = Cube`
   resta assegnato e invisibile. Detto nel tooltip; vedi Fase 4.7 per perché non lo si aggiusta.
 - ~~raylib non decodifica i JPEG~~ **risolto** con la ricaduta su `StbImageSharp` + la

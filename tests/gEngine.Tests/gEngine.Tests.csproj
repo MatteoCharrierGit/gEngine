@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\gEngine\gEngine.csproj" />
+    <ProjectReference Include="..\..\src\gEngine.Editor\gEngine.Editor.csproj" />
   </ItemGroup>
 
 </Project>
