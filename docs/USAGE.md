@@ -703,6 +703,17 @@ public class MioSystem(ILogger logger) : ISimulationSystem { /* ... */ }
 Per aggiungere un destinatario (un pannello, un file) si implementa `ILogSink` e lo si registra
 con `AddSink`; nessuna riga che chiama `Info(...)` cambia.
 
-⚠️ Il logger **non tiene storia**: un sink registrato dopo non vede quel che è già passato. Chi
-ne ha bisogno se la tiene per conto suo. ⚠️ Non è thread-safe, per scelta — vedi
-[`DA_RICORDARE.md`](DA_RICORDARE.md#logging).
+⚠️ Il logger **non tiene storia**: un sink registrato dopo non vede quel che è già passato. ⚠️
+Non è thread-safe, per scelta — vedi [`DA_RICORDARE.md`](DA_RICORDARE.md#logging).
+
+**La storia** ce l'ha `LogHistory`, un sink con buffer circolare (500 messaggi di default) che
+il `GameLoop` attacca prima ancora di aprire la finestra e dichiara come Resource. È da lì che
+la **Console dell'editor** legge — anche le righe scritte prima che l'editor esistesse:
+
+```csharp
+var history = resources.Get<LogHistory>();
+foreach (var message in history.Messages) { /* dal piu' vecchio al piu' recente */ }
+```
+
+Nell'editor la Console è un pannello acceso di default: filtra per livello, per categoria e per
+testo, e si tira su da sé quando arriva un errore nuovo.

@@ -4,6 +4,7 @@ using gEngine.Ecs;
 using gEngine.Ecs.Base;
 using gEngine.Editor.Scripting;
 using gEngine.Editor.Undo;
+using gEngine.Log;
 using gEngine.Scenes;
 
 namespace gEngine.Editor;
@@ -102,6 +103,19 @@ public class EditorContext
     public ScriptCompilation? Scripts =>
         Resources is { } resources && resources.TryGet<ScriptCompilation>(out var scripts)
             ? scripts
+            : null;
+
+    /// <summary>
+    /// Il buffer degli ultimi messaggi di log, se il gioco l'ha dichiarato (lo fa il
+    /// <c>GameLoop</c>, che lo attacca al logger prima ancora di aprire la finestra).
+    ///
+    /// ⚠️ Come per gli altri, <c>null</c> è un caso normale e va distinto da "nessun
+    /// messaggio": un gioco che costruisce il proprio loop può non averla registrata, e una
+    /// console vuota che dovrebbe dire "non lo so" è la bugia più facile da scrivere qui.
+    /// </summary>
+    public LogHistory? LogHistory =>
+        Resources is { } resources && resources.TryGet<LogHistory>(out var history)
+            ? history
             : null;
 
     public bool IsSelected(Entity entity)

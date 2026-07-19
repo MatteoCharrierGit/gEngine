@@ -14,60 +14,36 @@
 
 ## Stato
 
-Aggiornato al **19 luglio 2026**, branch `feat/editor-mvp`, tutto committato.
+Aggiornato al **19 luglio 2026**, branch `feat/editor-mvp`.
 
 | | |
 |---|---|
 | Build | `dotnet build gEngine.slnx --nologo -v q` → **0 errori, 0 warning** *(verificato)* |
-| Test | `dotnet test tests/gEngine.Tests` → **69 verdi** *(verificato)* |
+| Test | `dotnet test tests/gEngine.Tests` → **88 verdi** *(verificato)* |
 | Run | `dotnet run --project samples/Sandbox` — l'editor si apre di default, **F1** lo chiude |
 
 **Fasi**: 0–4 chiuse (editor MVP completo: hierarchy, inspector, gizmi, save/load, play/stop,
-undo/redo, script compilati a runtime, file system che scrive). **Fase 5** quasi tutta fatta —
-mancano le rifiniture elencate sotto. Fase 6 non iniziata.
+undo/redo, script compilati a runtime, file system che scrive, console). **Fase 5** quasi tutta
+fatta — mancano le rifiniture elencate sotto. Fase 6 non iniziata.
 
 ### ⬅️ Si riprende da qui
 
-**[Console in-editor](#11-console-in-editor)**, punto 1 del piano. Il prerequisito — il logger
-raggiungibile dalle `Resources` — è **chiuso** (Fase 4.91): resta da scrivere il pannello, cioè
-un `ILogSink` che tiene la storia e la disegna.
+**[Interfaccia per l'`InputHandler`](#11-interfaccia-per-linputhandler-e-per-i-system)**, che
+adesso è il punto 1 del piano. La **console è chiusa** — Fasi 4.91 / 4.92 / 4.93.
+
+⚠️ **Una cosa aperta dalla console**, piccola ma da non perdere: `Logger.RemoveSink` è rimasta
+**senza clienti**. Il pannello legge la `LogHistory` invece di registrarsi come sink, quindi
+nessuno si sregistra più. O le si trova un uso, o va tolta — è esattamente il genere di codice
+morto che questa fase ha appena finito di ripulire altrove.
 
 ---
 
 ## 1. Il piano deciso dal proprietario
 
-In ordine. Il punto 2 originale (FileSystem completo) è **chiuso** — Fasi 4.85 / 4.88 / 4.89 —
-e per questo non compare più.
+In ordine. Due punti originali sono **chiusi** e per questo non compaiono più: il FileSystem
+completo (Fasi 4.85 / 4.88 / 4.89) e la **console in-editor** (Fasi 4.91 / 4.92 / 4.93).
 
-### 1.1 Console in-editor
-
-Una console dentro l'editor che mostra il log del progetto. **Non solo gli errori: tutto il
-flusso.**
-
-Il prerequisito è chiuso: `ILogger` è nelle `Resources` e il logger fa **fan-out su N
-`ILogSink`** (Fase 4.91). Quel che manca è **il pannello**, cioè un sink editor-side.
-
-- **La forma è già decisa dallo strato sotto**: il pannello è un `ILogSink` che si registra sul
-  `Logger` e disegna quel che riceve. `resources.Get<ILogger>()` per arrivarci.
-- ⚠️ **Il logger non tiene storia** — è una scelta, non una dimenticanza (la soglia è una
-  regola sola, la storia è un bisogno di chi guarda). Il pannello ha bisogno di **un buffer
-  circolare suo**, e va deciso quanto tiene: un gioco che logga per frame riempie qualsiasi
-  lista non limitata. È la prima decisione da prendere, prima di disegnare qualsiasi cosa.
-- ⚠️ **Chi si registra tardi non vede l'avvio.** Il logger parte *prima* di `InitWindow` apposta
-  perché l'avvio si veda, ma un pannello costruito a editor pronto si è già perso quelle righe.
-  O il sink si registra al setup (e il pannello legge il suo buffer quando si apre), o l'avvio è
-  perso — e allora va detto a video, non lasciato credere completo.
-- L'aggancio è già mezzo scritto: il **`ScriptsPanel` è di fatto una console per un solo
-  produttore**, e il suo "si apre da sé quando c'è un errore" è la regola da **riusare**, non
-  da reinventare.
-- **C'è già qualcosa da mostrare**: `Engine`, `Window`, `Assets`, `Renderer` e `Physics` sono
-  categorie **usate** (Fase 4.92), quindi un filtro per categoria ha da subito su cosa lavorare
-  e una console vuota si distingue da una rotta. ⚠️ Restano vuote `Audio` (aspetta
-  [1.3](#13-audio-manager-dal-punto-di-vista-dellui)) e `Ecs`.
-- ⚠️ Le stringhe che finiscono a video passano da ImGui → **solo Latin-1**. Vedi
-  [`DA_RICORDARE.md`](DA_RICORDARE.md#imgui).
-
-### 1.2 Interfaccia per l'`InputHandler` e per i system
+### 1.1 Interfaccia per l'`InputHandler` e per i system
 
 `InputHandler` è una classe concreta e i system se la prendono nel costruttore: è **l'ultima
 dipendenza del gioco che non passa da una porta**, in un engine dove renderer, asset, fisica e
@@ -78,7 +54,7 @@ cestino ci passano tutti.
   `InputHandler` **non lo trova più** — ed è giusto (chi consuma dipende dalla porta), ma va
   fatto **in un colpo solo**, registrazione e consumatori insieme.
 
-### 1.3 Audio manager, dal punto di vista dell'UI
+### 1.2 Audio manager, dal punto di vista dell'UI
 
 Oggi l'audio è **invisibile all'editor**: chi suona, cosa, a che volume, non si vede da nessuna
 parte. E `SandboxGame` tiene un `_introSound` e chiama `UpdateMusic` a mano dentro `Draw` —
@@ -99,7 +75,7 @@ codice di gioco che fa il lavoro di un system.
   system che lo suona. Con `[GameComponent]` + `[EditorAsset(AssetKind.Music)]` nasce già
   autorabile, salvabile e trascinabile — ed è la prova che gli strati sotto reggono.
 
-### 1.4 Font dell'editor
+### 1.3 Font dell'editor
 
 ⚠️ **Il limite più grosso del tema**: ProggyClean, il bitmap font di default, è ciò che fa
 sembrare l'editor un prototipo più di ogni scelta di colore. Ma **non è un ritocco**.
@@ -166,8 +142,8 @@ anni).
 
 ## 3. Test
 
-Il progetto esiste (`tests/gEngine.Tests`, xUnit, 69 verdi) ma copre **solo la
-serializzazione**. Restano scoperti i due pezzi che reggono tutto il resto.
+Il progetto esiste (`tests/gEngine.Tests`, xUnit, 88 verdi) e copre serializzazione, ciclo di
+vita dei system, file degli asset e log. Restano scoperti i due pezzi che reggono tutto il resto.
 
 - **ECS** — `CreateEntity`, `AddComponent`/`GetComponent`, `Query<..>`.
 - ⚠️ **Il gotcha struct/copia** (mutazione + write-back). **Ha già morso cinque volte**, ed è
@@ -228,7 +204,7 @@ solo **non verifica niente** (misurato, non temuto). Vedi anche
 - **Slot per asset diversi da `Model`.** `DrawAssetSlot` gestisce solo `AssetKind.Model` e **lo
   dice** a video. Gli altri generi hanno handle di tipo diverso e **nessun componente li
   dichiara ancora**: il ramo giusto non si può scrivere senza inventare a cosa servirebbe. Il
-  primo caso reale sarà l'audio — vedi [1.3](#13-audio-manager-dal-punto-di-vista-dellui).
+  primo caso reale sarà l'audio — vedi [1.2](#12-audio-manager-dal-punto-di-vista-dellui).
 - **I binari degli asset sono fuori da git** (decisione del proprietario, niente Git LFS). ⚠️ Un
   clone pulito **parte degradato** e va detto a chi lo fa — vedi
   [`DA_RICORDARE.md`](DA_RICORDARE.md#gli-asset-non-sono-nel-repo).
@@ -312,6 +288,6 @@ Non iniziate, nessuna decisione presa.
 - **Perf ECS**: valutare storage ad **archetipi / array densi** — ⚠️ solo *se serve*. Oggi lo
   storage è un `Dictionary<int, T>` per tipo, che è la ragione per cui il dibattito
   struct-vs-class sui componenti conta meno di quanto sembri.
-- **Audio 3D** (sfx, canali, spatial audio) — dopo [1.3](#13-audio-manager-dal-punto-di-vista-dellui)
+- **Audio 3D** (sfx, canali, spatial audio) — dopo [1.2](#12-audio-manager-dal-punto-di-vista-dellui)
 
 *(Undo/Redo e Asset browser erano in questa lista e sono **fatti**: Fasi 4.8, 4.85, 4.88.)*

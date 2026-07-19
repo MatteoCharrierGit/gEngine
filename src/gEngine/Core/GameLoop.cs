@@ -19,6 +19,7 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
     // Il logger nasce con un sink sullo stdout. Gliene si aggiungono altri dall'esterno
     // (la console dell'editor) senza che nessun chiamante di Info/Warn/Error cambi.
     private readonly Logger _logger = new Logger();
+    private readonly LogHistory _history = new LogHistory();
     private IRenderer? _renderer = null;
     private AssetManager? _assetManager = null;
     private InputHandler _inputHandler = new InputHandler();
@@ -37,7 +38,16 @@ public class GameLoop(int windowWidth, int windowHeight, string title, IGame gam
         // cioè il pezzo di vita del programma in cui è più probabile che qualcosa vada storto
         // e in cui, non essendoci ancora una finestra, il log è l'unica cosa che parla.
         _logger.AddSink(new ConsoleLogSink());
+
+        // La storia si attacca QUI per lo stesso motivo per cui il logger si registra prima di
+        // InitWindow: la console dell'editor nasce dentro Game.Init, cioè a finestra già
+        // aperta. Se il buffer nascesse con lei, mostrerebbe tutto tranne l'avvio.
+        // ⚠️ Registrata sotto il tipo concreto e non sotto ILogSink: chi la cerca vuole
+        // *questa* (per rileggerla), non "un destinatario qualunque" — e i sink sono N mentre
+        // le Resource sono una per tipo.
+        _logger.AddSink(_history);
         _resources.Add<ILogger>(_logger);
+        _resources.Add<LogHistory>(_history);
 
         Raylib.SetConfigFlags(ConfigFlags.Msaa4xHint);
         Raylib.SetConfigFlags(ConfigFlags.ResizableWindow);

@@ -128,6 +128,10 @@ per i caratteri `> 0xFF` nelle righe non di commento, **non rileggendoli**.
   `FirstUseEver`: per provare il primo avvio, **cancellalo**.
 - ⚠️ Un bottone a larghezza piena (`-1`) seguito da `SameLine` spinge l'etichetta **fuori dal
   pannello**. Per allinearsi agli altri campi: `ImGui.CalcItemWidth()`.
+- ⚠️ **`TextColored` non manda a capo**: una riga lunga viene **troncata a destra**, in
+  silenzio. Nella Console spariva il path dell'asset mancante — cioè l'unica ragione per cui
+  quel messaggio esisteva. Per testo colorato *e* a capo serve `PushStyleColor(ImGuiCol.Text)`
+  + `TextWrapped` + `PopStyleColor`. Vale per qualunque testo di lunghezza non nota.
 ### Due bug che non esistono — non "ri-aggiustarli"
 
 - **L'input da tastiera nell'Inspector.** Un click su un widget `Drag*` **trascina**; per
@@ -167,6 +171,10 @@ tre giri a vuoto. Usa **`Process.MainWindowHandle`**.
 - ✅ **I tasti sintetici passano**, Ctrl+Z compreso — serve il `lParam` giusto **anche sul
   KEYDOWN** (scancode nell'HIWORD), non solo sul KEYUP. *(Un documento precedente diceva che F1
   non era pilotabile: era falso.)*
+- ⚠️ **Uno scatto programmato "al frame N" non è "al secondo N/60"**: il contatore parte col
+  primo `Draw`, ma il caricamento degli asset ruba **~3 secondi** prima. Un frame 600 cade a
+  ~13s, non a 10 — e se il rig chiude il gioco a 11s lo screenshot semplicemente non esiste,
+  il che assomiglia molto a un rig rotto.
 
 ---
 

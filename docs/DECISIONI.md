@@ -1801,6 +1801,97 @@ riga che un umano legge per andare a cercare il file. Normalizzato.
 
 ---
 
+## Fase 4.93 — La console: il log entra nell'editor 🟢
+
+*Punto 1 del piano del proprietario, chiuso. La richiesta era «unire il logger con una console
+dentro l'editor, e **non mostrare solo gli errori** — tutto il flusso».*
+
+### La decisione: il pannello NON è un sink
+
+Sembrava ovvio che la console fosse un `ILogSink` registrato sul `Logger`. Non lo è, per una
+ragione di tempi: **il pannello nasce dentro `IGame.Init`**, cioè a finestra già aperta e già
+loggata. Un sink che nasce col pannello mostrerebbe tutto *tranne* l'avvio — cioè il tratto in
+cui è più probabile che qualcosa sia andato storto.
+
+Quindi: **`LogHistory`**, un sink con un buffer circolare che sta **nell'engine**, attaccato dal
+`GameLoop` *prima* di `InitWindow` insieme al logger, e dichiarato come Resource. Il pannello lo
+**legge**. Conseguenze, tutte volute:
+
+- la console mostra anche ciò che è successo **prima che ci fosse una console**;
+- il pannello non ha ciclo di vita da gestire (niente registra/sregistra all'apertura);
+- chi non usa l'editor ha comunque una storia leggibile, che è utile a chiunque.
+
+⚠️ **Il buffer non sta dentro `Logger`**, ed è la stessa linea tirata alla Fase 4.91: la soglia
+è una regola **sola** e sta al centro; la storia è un bisogno di **chi guarda**. Metterla nel
+logger avrebbe imposto una dimensione a tutti per comodo di uno.
+
+### `TotalErrors` è monotòno, e non è un dettaglio
+
+La console si apre da sé su un errore **nuovo** (regola presa in prestito dal `ScriptsPanel`,
+che è l'unico altro pannello a cui è concesso aprirsi da solo). Per accorgersene serve un
+contatore che **non scende**: contare gli errori *presenti nel buffer* sembra equivalente e non
+lo è — quando il buffer gira, l'errore vecchio esce, il conteggio cala, e "sono aumentati"
+torna vero **una seconda volta per lo stesso errore**. Il pannello si riaprirebbe da solo per
+un guasto già visto.
+
+Per lo stesso motivo `Clear()` svuota il buffer ma **non** azzera il contatore: azzerandolo, un
+"Pulisci" farebbe riscattare l'apertura automatica al primo errore successivo.
+
+### ⚠️ Il difetto che solo lo screenshot ha trovato
+
+I test erano verdi, il pannello si apriva, le righe c'erano. Guardandolo:
+
+```
+[Warning] [Assets] Asset non trovato: 'audio/...' (cercato in 'C:\Users\ma
+```
+
+**Tagliato.** `ImGui.TextColored` non manda a capo, e la coda della riga spariva fuori dal
+pannello — cioè spariva **il path**, che è l'unica ragione per cui quel messaggio esiste. Un log
+che tronca a destra nasconde proprio la parte dove stanno i dettagli: path, numeri, nomi.
+
+Risolto con `PushStyleColor` + `TextWrapped` (`TextColored` non ha una variante che vada a capo).
+A capo e **non** una barra orizzontale: i messaggi lunghi non sono l'eccezione, sono la norma, e
+si finirebbe a scorrere avanti e indietro per leggerne uno alla volta.
+
+⚠️ È il quarto difetto in questo repo che **nessun test avrebbe preso** e che si è visto solo
+aprendo l'immagine. La regola "la UI si verifica guardandola" continua a ripagarsi.
+
+### Verificato col rig, non per costruzione
+
+1. **A video**: avviato il Sandbox con l'mp3 rinominato, screenshot al frame 120. Si vedono le
+   tre righe, i colori (giallo l'avviso, il resto neutro), i conteggi sulle spunte, e nessun
+   `?` — cioè le stringhe sono davvero tutte Latin-1.
+2. **I filtri filtrano**: click sintetico (`PostMessage`) sulla spunta `Info`, secondo
+   screenshot. Le due righe Info spariscono, resta l'avviso.
+
+⚠️ **Trappola nuova del rig, da sapere**: il contatore dei frame parte quando parte il `Draw`,
+ma il caricamento degli asset ruba **~3 secondi** prima. Uno scatto programmato al frame 600 non
+è "a 10 secondi", è a 13 — e il primo tentativo ha chiuso il gioco prima che arrivasse, dando
+uno screenshot che semplicemente non c'era. Non era il rig rotto: era la sveglia messa presto.
+
+### Le scelte piccole, scritte perché non si ridiscutano
+
+- **Nasce accesa**, al contrario di Systems/Components/Scripts. Non è un inventario che si
+  consulta quando serve: è il flusso di ciò che il gioco sta facendo, e un log che bisogna
+  ricordarsi di aprire si guarda solo dopo aver già perso tempo a cercare altrove.
+- **Le categorie del filtro si ricavano dal buffer**, non dalle costanti di `LogCategories`.
+  Offrire una categoria che nessuno usa darebbe un filtro che svuota la console senza motivo —
+  e un gioco può inventarsi le proprie.
+- **I conteggi stanno sulle spunte** (`Avvisi (1)`), non in una riga a parte: "quanti ce ne
+  sono" e "li sto vedendo" sono la stessa domanda.
+- **`Segui` si incolla in fondo solo se ci si era già**: trascinare via l'utente che ha
+  scrollato indietro per leggere renderebbe il log illeggibile proprio mentre lo legge.
+- **L'Info non è colorato.** Se si colora anche il livello normale, tutto è colorato e il
+  colore non distingue più niente.
+
+### Cosa resta aperto
+
+⚠️ **`Logger.RemoveSink` è rimasta senza clienti**: era pensata per un pannello-sink che si
+sregistra chiudendosi, e il pannello non è un sink. È in `ROADMAP.md` — o le si trova un uso o
+va tolta, perché è lo stesso codice morto che la Fase 4.91 ha trovato nel logger.
+
+---
+
 ## Fase 5 — Profondità 3D: asset, materiali, luci, fisica 🔴
 
 Da "cubi colorati" a "scena 3D vera".

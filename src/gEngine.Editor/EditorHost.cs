@@ -230,6 +230,12 @@ public class EditorHost
         // cosa che l'utente non sa ancora di dover chiedere. Vedi ScriptsPanel.
         _panels.Add(new ScriptsPanel());
 
+        // La Console nasce ACCESA, al contrario degli altri: non e' un inventario che si
+        // consulta quando serve, e' il flusso di cio' che il gioco sta facendo. Un log che
+        // bisogna ricordarsi di aprire e' un log che si guarda solo dopo aver gia' perso tempo
+        // a cercare altrove. Come lo ScriptsPanel si tira su da se' su un errore nuovo.
+        _panels.Add(new ConsolePanel());
+
         _menuBar = new MainMenuBar(document, PlayMode);
 
         _initialized = true;
