@@ -4,6 +4,7 @@ using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
 using gEngine.Ecs.System;
+using gEngine.Log;
 using gEngine.Physics;
 
 namespace gEngine.Tests.Ecs;
@@ -253,7 +254,7 @@ public class SystemLifecycleTests
             });
         }
 
-        var system = new PhysicsSystem(physics);
+        var system = new PhysicsSystem(physics, new Logger());
         registry.Add(system);
         registry.RunSimulation(0.016f);
 

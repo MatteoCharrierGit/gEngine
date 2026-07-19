@@ -11,10 +11,13 @@ namespace gEngine.Tests.Scenes;
 /// finestra aperta e i file veri su disco: due dipendenze che non hanno niente a che fare
 /// con ciò che si sta verificando.
 ///
-/// ⚠️ Non verifica che il file esista, ed è voluto: qui interessa che l'<b>andata e
-/// ritorno del path</b> sia esatta, non che il modello sia caricabile. Il caso "file
-/// mancante" non è coperto da nessuna parte — vedi la nota nell'handoff: raylib non lancia,
-/// logga e restituisce un handle vuoto.
+/// ⚠️ Non verifica che il file esista, ed è voluto: qui interessa che l'<b>andata e ritorno
+/// del path</b> sia esatta, non che il modello sia caricabile — proprio come il backend vero,
+/// visto che raylib su file mancante non lancia, logga e restituisce un handle vuoto.
+///
+/// Il caso "file mancante" **è** coperto, ma altrove e per un'altra ragione: lo controlla
+/// l'<c>AssetManager</c> (che è l'unico a sapere il path relativo di partenza) e lo verifica
+/// <c>AssetManagerTests</c>. Qui resta scoperto apposta.
 /// </summary>
 internal sealed class FakeAssetBackend : IAssetBackend
 {

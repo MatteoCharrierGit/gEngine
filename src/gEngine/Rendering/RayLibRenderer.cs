@@ -1,5 +1,6 @@
 ﻿using System.Numerics;
 using gEngine.Assets;
+using gEngine.Log;
 using Raylib_cs;
 
 namespace gEngine.Rendering;
@@ -44,9 +45,12 @@ public unsafe class RayLibRenderer : IRenderer
     private readonly int[] _lightColorLoc = new int[MaxLights];
     private readonly int[] _lightIntensityLoc = new int[MaxLights];
 
-    public RayLibRenderer(RayLibAssetBackend assetBackend)
+    private readonly ILogger _logger;
+
+    public RayLibRenderer(RayLibAssetBackend assetBackend, ILogger logger)
     {
         _assetBackend = assetBackend;
+        _logger = logger;
         _unitCubeMesh = Raylib.GenMeshCube(1f, 1f, 1f);
         _unitSphereMesh = Raylib.GenMeshSphere(0.5f, 16, 16);
         _defaultMaterial = Raylib.LoadMaterialDefault();
@@ -58,12 +62,44 @@ public unsafe class RayLibRenderer : IRenderer
         _defaultMaterial.Shader = _litShader;
     }
 
-    private static Shader LoadEngineShader(string vertexName, string fragmentName)
+    /// <summary>
+    /// ⚠️ Il secondo fallimento silenzioso dell'engine, dopo l'asset mancante.
+    ///
+    /// <c>LoadShader</c> su file mancante o GLSL che non compila <b>non lancia</b>: raylib
+    /// ricade sullo shader di default e restituisce quello. Il gioco parte e disegna — solo
+    /// senza illuminazione, con i volumi piatti. È un sintomo che assomiglia a "le luci sono
+    /// tarate male", cioè si va a cercare nel posto sbagliato.
+    ///
+    /// ⚠️ Il file si controlla <b>prima</b>, perché i due guasti vanno distinti: manca il file
+    /// (probabilmente non è stato copiato in output) è un'altra indagine rispetto a il file
+    /// c'è ma il GLSL non compila. Un solo messaggio per due cause manderebbe nella direzione
+    /// sbagliata metà delle volte.
+    /// </summary>
+    private Shader LoadEngineShader(string vertexName, string fragmentName)
     {
         var shaderDir = Path.Combine(AppContext.BaseDirectory, "Shaders");
-        return Raylib.LoadShader(
-            Path.Combine(shaderDir, vertexName),
-            Path.Combine(shaderDir, fragmentName));
+        var vertexPath = Path.Combine(shaderDir, vertexName);
+        var fragmentPath = Path.Combine(shaderDir, fragmentName);
+
+        foreach (var path in (string[])[vertexPath, fragmentPath])
+        {
+            if (!File.Exists(path))
+                _logger.Error(LogCategories.Renderer, $"Shader non trovato: '{path}'");
+        }
+
+        var shader = Raylib.LoadShader(vertexPath, fragmentPath);
+
+        // raylib ricade sullo shader di default, che è valido: quindi "valido" qui vuol dire
+        // "ne è uscito qualcosa", non "è il nostro". Il confronto con l'id di default è il
+        // solo modo di distinguere, e vale la pena perché è proprio il caso da segnalare.
+        if (!Raylib.IsShaderValid(shader))
+        {
+            _logger.Error(LogCategories.Renderer,
+                $"Shader '{vertexName}' + '{fragmentName}' non compilato: si disegna senza. " +
+                "Attenzione: la scena verra' fuori piatta, non e' un problema di luci.");
+        }
+
+        return shader;
     }
 
     // Nessuna uniform da agganciare: mvp e colDiffuse li mette raylib da sé, e di luci

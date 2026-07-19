@@ -8,6 +8,7 @@ using Sandbox.Components;
 using gEngine.Ecs.System;
 using gEngine.Editor;
 using gEngine.Input;
+using gEngine.Log;
 using gEngine.Physics;
 using gEngine.Rendering;
 using gEngine.Scenes;
@@ -164,7 +165,7 @@ public class SandboxGame() : IGame
 
         // I system dell'ENGINE restano espliciti: non sono script del gioco, e il gioco deve
         // poter scegliere quali far girare.
-        _systems.Add(new PhysicsSystem(_physics));
+        _systems.Add(new PhysicsSystem(_physics, resources.Get<ILogger>()));
 
         // LightingSystem PRIMA di MeshRenderSystem: carica le uniform delle luci prima di disegnare.
         _systems.Add(new LightingSystem());

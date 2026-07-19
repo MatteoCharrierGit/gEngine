@@ -1,6 +1,7 @@
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Ecs.Interfaces.System;
+using gEngine.Log;
 using gEngine.Physics;
 
 namespace gEngine.Ecs.System;
@@ -31,9 +32,12 @@ public class PhysicsSystem : ISimulationSystem
     private readonly Dictionary<int, BodyId> _bodiesByEntity = new();
     private readonly List<int> _orphaned = new();
 
-    public PhysicsSystem(IPhysicsWorld physics)
+    private readonly ILogger _logger;
+
+    public PhysicsSystem(IPhysicsWorld physics, ILogger logger)
     {
         _physics = physics;
+        _logger = logger;
     }
 
     public void OnCreate(World world)
@@ -62,6 +66,13 @@ public class PhysicsSystem : ISimulationSystem
     /// </summary>
     public void OnDestroy(World world)
     {
+        // Info e non Debug: qui non è il gioco che gira, è qualcuno che ha tolto il system dal
+        // pannello. Il numero è il punto — dice che i corpi sono stati liberati davvero, che è
+        // esattamente la cosa che prima nessuno poteva sapere.
+        if (_bodiesByEntity.Count > 0)
+            _logger.Info(LogCategories.Physics,
+                $"PhysicsSystem rimosso: {_bodiesByEntity.Count} corpi liberati");
+
         foreach (var (entityId, body) in _bodiesByEntity)
         {
             _physics.RemoveBody(body);
@@ -144,6 +155,14 @@ public class PhysicsSystem : ISimulationSystem
 
             _orphaned.Add(entityId);
         }
+
+        // ⚠️ Sotto la guardia, e non fuori: questo metodo gira a ogni passo fisso, cioè 60
+        // volte al secondo. Una riga incondizionata qui non sarebbe "log verboso", sarebbe una
+        // console inutilizzabile e un logger che costa quanto la simulazione. Si parla solo
+        // quando è successo qualcosa.
+        if (_orphaned.Count > 0)
+            _logger.Debug(LogCategories.Physics,
+                $"Riconciliazione: {_orphaned.Count} corpi orfani tolti dalla simulazione");
 
         // Fuori dal ciclo: stiamo modificando la stessa mappa che scorrevamo.
         foreach (var entityId in _orphaned)

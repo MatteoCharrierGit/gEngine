@@ -3,6 +3,7 @@ using System.Text.Json;
 using gEngine.Assets;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
+using gEngine.Log;
 using gEngine.Physics;
 using gEngine.Rendering;
 using gEngine.Scenes;
@@ -437,8 +438,11 @@ public class SceneRoundTripTests
         return registry;
     }
 
+    // Un Logger senza sink è il logger nullo: non ha bisogno di un tipo apposta, perché
+    // "senza sink non lancia e scarta tutto" è già una decisione presa (vedi Logger). Qui
+    // serve proprio quello — questi test guardano la serializzazione, non il log.
     private static AssetManager NewAssetManager() =>
-        new(Path.GetTempPath(), "assets", new FakeAssetBackend());
+        new(Path.GetTempPath(), "assets", new FakeAssetBackend(), new Logger());
 
     // ------ HELPER DEI GUASTI -------------------------------------------------------------
 
