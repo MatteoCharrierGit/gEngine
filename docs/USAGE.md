@@ -1,9 +1,12 @@
 # gEngine — Guida all'uso
 
 Come si costruisce un gioco con gEngine allo stato attuale. Documenta ciò che
-**esiste ed è utilizzabile oggi** (non la roadmap futura — per quella vedi
-[`ROADMAP.md`](ROADMAP.md)). I riferimenti ai file usano path relativi alla radice
+**esiste ed è utilizzabile oggi**. I riferimenti ai file usano path relativi alla radice
 del repo.
+
+Gli altri documenti: [`ROADMAP.md`](ROADMAP.md) è cosa resta da fare,
+[`DA_RICORDARE.md`](DA_RICORDARE.md) le trappole e i limiti accettati,
+[`DECISIONI.md`](DECISIONI.md) il perché di ogni scelta già presa.
 
 ---
 
@@ -187,7 +190,7 @@ registrerebbe sotto `IRenderer?`.
 marcarlo `[RuntimeState]` — cioè ammettere che non è dato d'autore. È lo split di Bevy
 (`Component`/`Resource`), e vale anche al contrario: la camera **di gioco** è un'entità
 (dato d'autore), la camera **di scena dell'editor** no (stato dell'editor). Vedi
-`ROADMAP.md` Fase 4.5.
+`DECISIONI.md` Fase 4.5.
 
 ---
 
@@ -466,14 +469,14 @@ non un oggetto persistente a cui restare agganciati.
 
 La camera con cui si **naviga nell'editor** è un'altra cosa e sta apposta fuori dal World
 (`EditorHost.SceneCamera`, mossa dal `FreeFlyCamera3DController` in `Rendering/Editor/`): è
-stato dell'editor, non dato di scena. Vedi `ROADMAP.md` Fase 4.5.
+stato dell'editor, non dato di scena. Vedi `DECISIONI.md` Fase 4.5.
 
 ---
 
 ## 8. Scene da file (data-driven)
 
 Una scena è un file JSON; il caricamento non conosce a priori i tipi di componente —
-usa un **registry di binder** (`Scenes/`). Vedi `ROADMAP.md` Fase 3 per il razionale.
+usa un **registry di binder** (`Scenes/`). Vedi `DECISIONI.md` Fase 3 per il razionale.
 
 ```csharp
 // 1) registra i binder: built-in dell'engine + eventuali custom del gioco
@@ -525,7 +528,7 @@ Un componente citato nel JSON ma senza binder registrato → errore **fail-fast*
 
 Il registry non serve solo al file: è anche **l'elenco dei tipi di componente che questo
 gioco ha**, ed è da lì che l'editor prende la lista di "Aggiungi componente". Perché una
-factory dichiarata e non un `default(T)` automatico: vedi `ROADMAP.md` Fase 4.7 — in breve,
+factory dichiarata e non un `default(T)` automatico: vedi `DECISIONI.md` Fase 4.7 — in breve,
 i componenti sono struct di dati nudi e `default(T)` è un default *rotto* (Transform con
 `Scale = 0` è invisibile, Light con `Intensity = 0` non illumina), quindi l'utente vedrebbe
 "componente aggiunto" e nessun effetto.
@@ -665,6 +668,41 @@ posa dei corpi **dinamici** nel `TransformComponent`. I corpi `IsStatic` non si 
 
 ## 13. Logging
 
-`ILogger` + `ConsoleLogger` (`Log/`) con livelli (Debug/Info/Warn/Error), timestamp e
-categoria. `GameLoop` istanzia un logger internamente; l'esposizione comoda a
-`IGame`/ai system è ancora da completare (vedi `ROADMAP.md` Fase 0).
+Due porte, una per verso (`Log/`):
+
+- **`ILogger`** — chi **produce**. `Debug`/`Info`/`Warn`/`Error(categoria, messaggio)`, più
+  `MinimumLevel` come soglia.
+- **`ILogSink`** — chi **consuma**: riceve un `LogMessage` (timestamp, livello, categoria,
+  testo) **già filtrato**.
+
+`Logger` è l'implementazione dell'engine: applica la soglia una volta e fa **fan-out** su tutti
+i sink. `ConsoleLogSink` scrive sullo stdout, colorato per livello.
+
+Il `GameLoop` costruisce il logger, gli attacca il sink di stdout e lo **registra sotto la
+porta**:
+
+```csharp
+resources.Add<ILogger>(logger);
+```
+
+Quindi si legge da qualunque `IGame.Init(Resources)`:
+
+```csharp
+var logger = resources.Get<ILogger>();
+logger.Info(LogCategories.Ecs, "scena caricata");
+```
+
+...e un system scoperto da `ScriptDiscovery` può chiederlo **nel costruttore**, come ogni altra
+Resource:
+
+```csharp
+[GameSystem(Order = 10)]
+public class MioSystem(ILogger logger) : ISimulationSystem { /* ... */ }
+```
+
+Per aggiungere un destinatario (un pannello, un file) si implementa `ILogSink` e lo si registra
+con `AddSink`; nessuna riga che chiama `Info(...)` cambia.
+
+⚠️ Il logger **non tiene storia**: un sink registrato dopo non vede quel che è già passato. Chi
+ne ha bisogno se la tiene per conto suo. ⚠️ Non è thread-safe, per scelta — vedi
+[`DA_RICORDARE.md`](DA_RICORDARE.md#logging).

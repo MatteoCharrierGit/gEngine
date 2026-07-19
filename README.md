@@ -67,10 +67,16 @@ loop.Run();
 [`samples/Sandbox/SandboxGame.cs`](samples/Sandbox/SandboxGame.cs)
 per un esempio completo.
 
-## Roadmap
+## Documentazione
 
-Il piano di sviluppo (obiettivo: mini engine **3D** con editor visuale) è in
-[`docs/ROADMAP.md`](docs/ROADMAP.md).
+| File | Cosa contiene |
+|---|---|
+| [`docs/USAGE.md`](docs/USAGE.md) | Come si costruisce un gioco con gEngine **oggi** |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Cosa resta da fare, per argomento |
+| [`docs/DA_RICORDARE.md`](docs/DA_RICORDARE.md) | Trappole già pagate, limiti accettati, standard di lavoro |
+| [`docs/DECISIONI.md`](docs/DECISIONI.md) | Il perché di ogni scelta già presa, fase per fase |
+
+Obiettivo del progetto: mini engine **3D** con editor visuale.
 
 ## Licenza
 

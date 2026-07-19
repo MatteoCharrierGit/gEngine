@@ -1,4 +1,26 @@
-# gEngine — Roadmap (3D)
+# gEngine — Diario delle decisioni
+
+> **Cos'è questo file.** L'archivio del **perché**, fase per fase, in ordine cronologico.
+> Era `ROADMAP.md` fino alla riorganizzazione: si è visto che il 90% del contenuto non era
+> "cosa fare" ma il razionale di ciò che era già stato fatto — le alternative scartate, i
+> numeri delle verifiche, i bug trovati costruendo. Quella parte è la cosa più preziosa del
+> repo e non si tocca; è solo stata separata da ciò che è ancora aperto.
+>
+> **Come si legge:**
+> - Cosa resta da fare → [`ROADMAP.md`](ROADMAP.md). **La verità sullo stato aperto è lì.**
+> - Cosa non va dimenticato → [`DA_RICORDARE.md`](DA_RICORDARE.md)
+> - Come si usa l'engine → [`USAGE.md`](USAGE.md)
+> - Il perché di una scelta già presa → **questo file**
+>
+> ⚠️ **Le caselle `- [ ]` qui dentro sono congelate**: fotografano lo stato *al tempo della
+> fase*, non oggi. Non spuntarle e non fidartene — sono state travasate in `ROADMAP.md`, che
+> è l'unico posto dove l'aperto è aggiornato. Due punti di verità sullo stato divergerebbero,
+> ed è esattamente l'errore che questa separazione toglie di mezzo.
+>
+> **Si scrive ancora qui**: chiudendo un lavoro, il racconto del perché va in fondo a questo
+> file come nuova fase. È parte del lavoro, non un extra.
+
+---
 
 ## Fase 0 — Fondamenta & igiene 🟢
 
@@ -1609,6 +1631,173 @@ con `Kind = Sphere` e `Visible` nell'Inspector.
 **il proprietario guardando**, non il rig. Il rig non è riuscito né a spostarla col gizmo (il
 trascinamento sintetico è il limite noto) né a distinguerla dal personaggio che sta anch'esso
 nell'origine.
+
+---
+
+## Fase 4.91 — Il logger esiste davvero, ed è il prerequisito della console 🟢
+
+*Voce aperta dalla **Fase 0**: «`GameLoop` istanzia `_logger` ma non lo passa mai a `IGame`/ai
+system». Andava chiusa prima della console in-editor.*
+
+### ⚠️ Non era "non è raggiungibile": era codice morto
+
+La ROADMAP raccontava un problema di **esposizione** — il logger c'è, manca il canale per
+arrivarci. Guardando, il canale non era l'unica cosa che mancava: `_logger` era un campo
+`readonly` di `GameLoop` **letto da nessuno**, `LogCategories` non era citato in nessun file, e
+`LogMessage` veniva costruito dentro `Write` e formattato subito — cioè esisteva un tipo per
+passare un messaggio a qualcuno, e non c'era nessun qualcuno.
+
+**In tre anni di commit l'engine non ha mai loggato una riga.** Conta perché cambia la forma del
+lavoro: non "collega una cosa che funziona", ma "una cosa mai esercitata sta per avere due
+consumatori contemporaneamente". Un `Add<ILogger>` e via sarebbe stato un prerequisito chiuso
+sulla carta e da riaprire al primo pannello.
+
+### La decisione: due porte, una per verso
+
+`ILogger` faceva **entrambi** i lavori — decidere cosa passa la soglia *e* scrivere su console.
+Finché il destinatario era uno, le due cose combaciavano. Con la console in-editor i destinatari
+diventano due e devono ricevere **entrambi lo stesso messaggio**, senza che chi logga sappia
+quanti sono.
+
+- **`ILogger`** resta la porta di chi **produce**.
+- **`ILogSink`** è la porta nuova, di chi **consuma**.
+- **`Logger`** applica la soglia **una volta** e fa fan-out sui sink.
+- `ConsoleLogger` → **`ConsoleLogSink`**, che scrive sullo stdout.
+
+È lo stesso ports & adapters di renderer, asset e fisica: qui l'uscita è `ILogSink`.
+
+⚠️ **Il rename non è cosmesi.** Stavano per esistere due cose chiamate "console" — lo stdout e
+il pannello — di cui una sola era `ConsoleLogger`. Rinominare **dopo** avrebbe voluto dire
+rinominare mentre si legge codice che usa il nome sbagliato per la cosa sbagliata.
+
+### Cosa è stato deciso di NON fare
+
+- **Niente storia dentro il `Logger`.** La soglia è **una regola sola** e sta al centro; la
+  storia è un **bisogno di chi guarda** e vive nel sink che ce l'ha. Un buffer nel logger
+  avrebbe imposto una dimensione a tutti per il comodo di uno. ⚠️ Il prezzo è dichiarato: un
+  sink registrato tardi non vede l'avvio, e la console dovrà decidere cosa farne (`ROADMAP.md`).
+- **Niente thread-safety.** Il gioco è a thread singolo. Metterla "per sicurezza" avrebbe
+  aggiunto un lock su un percorso caldo per un caso che non esiste. Il giorno che esiste, si
+  cambia `Logger` e **non i chiamanti** — che è tutto il punto di avere una porta.
+- **Senza sink non lancia.** Un logger è trasversale: far cadere il gioco perché nessuno ascolta
+  è sproporzionato. È il verso sicuro dello sbaglio, ed è scritto dove serve perché "non vedo i
+  miei log" non diventi un mistero.
+
+### ⚠️ L'ordine di registrazione è invertito rispetto a tutto il resto
+
+Il logger si registra **prima di `InitWindow`**, mentre un commento poco sopra impone l'opposto
+a renderer e `AssetManager`. Sembra un'incoerenza ed è il motivo opposto: quei due **non
+possono** esistere a finestra chiusa (tengono risorse GPU), il logger non ha quel vincolo — e
+registrarlo insieme a loro renderebbe muto **proprio l'avvio**, cioè il tratto di vita del
+programma in cui è più probabile che qualcosa vada storto e in cui, non essendoci ancora una
+finestra, il log è l'unica cosa che parla. Il commento nel codice lo dice, perché letto di
+sfuggita sembra una svista da "sistemare".
+
+### Verificato: sabotando, e guardando
+
+**I test discriminano** (8 nuovi, 77 totali verdi). Provato che falliscono davvero:
+
+| Sabotaggio | Esito |
+|---|---|
+| Fan-out che serve **solo il primo** sink | 1 test rosso |
+| Soglia **ignorata** (`if (false)`) | 2 test rossi |
+
+⚠️ La coppia di asserzioni sulla soglia è voluta: "l'`Error` arriva" da solo passerebbe **anche
+con la soglia disattivata**. Serve anche "il `Debug` non arriva", o non si sta verificando
+niente — è la lezione della Fase 4.86 applicata a un caso nuovo.
+
+**E il gioco logga davvero**, che i test non lo dicono: avviato il Sandbox con lo stdout
+rediretto, chiuso con `CloseMainWindow()` (chiusura pulita, così il buffer si svuota e
+`Shutdown` fa in tempo a scrivere). Le tre righe ci sono, nell'ordine e con i tempi giusti, in
+mezzo al log nativo di raylib:
+
+```
+[15:12:06] [Info] [Window] Finestra 1920x1080 - Game
+[15:12:09] [Info] [Engine] Gioco inizializzato
+[15:12:09] [Info] [Engine] Chiusura
+```
+
+⚠️ Nota del rig, diversa da quella nota per gli screenshot: qui **non** si ammazza il processo.
+`CloseMainWindow()` manda `WM_CLOSE`, `WindowShouldClose()` diventa vero e il loop esce dalla
+porta principale — che è anche l'unico modo di vedere il log di chiusura.
+
+⚠️ Con lo stdout rediretto su file, i colori di `ConsoleLogSink` finiscono nel file come
+sequenze VT (`ESC[7m`). In un terminale vero non si vedono; leggendo un log catturato, sì.
+
+### Cosa restava scoperto
+
+**Loggava solo il `GameLoop`, tre righe** — chiuso subito dopo dalla Fase 4.92.
+
+---
+
+## Fase 4.92 — Il logger serve a qualcosa: i tre silenzi 🟢
+
+*Un logger che nessuno chiama è metà lavoro: la Fase 4.91 ha costruito il tubo, questa ci fa
+passare qualcosa.*
+
+### Il criterio: non "log ovunque", ma i punti dove si fallisce in silenzio
+
+La tentazione era spargere `Info` per l'engine finché le categorie non fossero tutte usate.
+Sarebbe stato il modo di riempire una console di rumore e nascondere le tre righe che contano.
+Il criterio scelto è l'opposto, ed è quello che questo repo insegue da sempre: **dove oggi
+qualcosa va storto senza che nessuno lo dica?** Ne sono usciti tre punti, tutti già
+*documentati come invisibili* e nessuno mai segnalato a runtime.
+
+| Dove | Cosa succedeva | Ora |
+|---|---|---|
+| `AssetManager` | raylib su file mancante **non lancia**: handle vuoto, scena senza modello, silenzio invece dell'audio | `Warning` col path **relativo** (quello del file di scena) e con dove ha cercato |
+| `RayLibRenderer` | `LoadShader` che fallisce ricade sullo shader di default: la scena esce **piatta** e sembra un problema di luci | `Error`, e il messaggio dice esplicitamente che **non** è un problema di luci |
+| `PhysicsSystem` | riconciliazione dei corpi orfani e `OnDestroy` non lasciavano traccia | `Debug` sui corpi orfani, `Info` sui corpi liberati togliendo il system |
+
+⚠️ **L'asset mancante è il più caro dei tre**, e non è teorico: i binari sono fuori da git,
+quindi **ogni clone pulito parte già così**. Fino a ieri l'unico segnale era una riga del log
+*nativo* di raylib in mezzo a duecento.
+
+### Due decisioni dentro il dettaglio
+
+- ⚠️ **Il controllo sta nell'`AssetManager`, non nel backend.** Il backend riceve un path
+  assoluto; solo l'`AssetManager` sa da quale path **relativo** l'ha ricavato — ed è l'unica
+  forma con cui chi legge il log può andare ad aggiustare il file di scena. Un messaggio col
+  solo assoluto direbbe dove si è cercato, non cosa correggere.
+- ⚠️ **Il log della fisica sta sotto la guardia `_orphaned.Count > 0`**, non fuori. Quel metodo
+  gira a **60 Hz**: una riga incondizionata non sarebbe "log verboso", sarebbe una console
+  inutilizzabile e un logger che costa quanto la simulazione.
+- **`Warning` e non un'eccezione** per l'asset: la ricaduta silenziosa resta la scelta giusta a
+  runtime (un gioco che non parte per una texture è peggio di un gioco senza quella texture).
+  Quel che mancava non era la severità — era che qualcuno lo **dicesse**.
+
+### Verificato: sabotando, e togliendo un file davvero
+
+**Il sabotaggio** (`if (File.Exists(...))` → `if (true)`, cioè controllo disattivato): **4 test
+rossi su 5**. Il quinto è `AssetPresente_NonAvvisa` e resta verde **giustamente** — è il test
+opposto, quello che impedisce a un `AssetManager` che avvisa *sempre* di passare per buono.
+Senza quella coppia, "l'asset mancante avvisa" lo supererebbe anche un urlatore seriale.
+
+**E la prova vera**: rinominato l'mp3 del Sandbox, avviato il gioco, rimesso a posto.
+
+```
+[15:24:32] [Warning] [Assets] Asset non trovato: 'audio/Before_the_Light_Fades.mp3'
+                     (cercato in '...\samples\Sandbox\assets\audio\Before_the_Light_Fades.mp3').
+                     Si continua con una risorsa vuota.
+```
+
+⚠️ Serviva farlo per davvero: su questa macchina **gli asset ci sono tutti**, quindi il primo
+giro a vuoto non aveva stampato nessun avviso — cioè il percorso d'allarme non era mai stato
+esercitato fuori dai test. Un "funziona" basato sul non aver visto niente è esattamente il
+genere di conclusione che questo progetto non accetta.
+
+⚠️ **Trovato guardando l'output**: i path di scena usano `/` e `Path.Combine` non li converte,
+quindi l'assoluto usciva coi separatori misti (`...\assets\audio/file.mp3`). Funziona, ma è la
+riga che un umano legge per andare a cercare il file. Normalizzato.
+
+### Cosa resta scoperto, per non farlo credere
+
+- **`Audio` ed `Ecs` restano categorie senza clienti.** È voluto: aspettano l'audio manager e un
+  ECS che abbia qualcosa da raccontare. Inventare messaggi per riempirle sarebbe stato il
+  rumore contro cui è stato scelto il criterio.
+- **Nessuno avvisa *prima***: chi clona il repo scopre gli asset mancanti una riga alla volta,
+  mentre la scena si carica. Un controllo all'avvio che elenca cosa manca sarebbe più onesto —
+  è in `ROADMAP.md`.
 
 ---
 
