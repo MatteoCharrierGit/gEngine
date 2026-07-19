@@ -26,11 +26,17 @@ public interface IComponentStorage
     ///   <item>Se il componente è uno <b>struct</b>, il boxing ne fa una <b>copia</b>: mutarla
     ///   non tocca lo storage, va riscritta con <see cref="SetBoxed"/>. È il write-back dei
     ///   system.</item>
-    ///   <item>Se è una <b>class</b> (es. <c>MeshRendererComponent</c>) si ottiene <b>il
-    ///   riferimento</b>: mutarlo tocca lo storage <i>subito</i>, e darlo a una seconda entità
-    ///   la lega alla prima. Non è teorico — <c>EntityOperations.Duplicate</c> copiava così,
-    ///   e dipingere la copia dipingeva l'originale.</item>
+    ///   <item>Se è una <b>class</b> si ottiene <b>il riferimento</b>: mutarlo tocca lo storage
+    ///   <i>subito</i>, e darlo a una seconda entità la lega alla prima. Non è teorico —
+    ///   <c>EntityOperations.Duplicate</c> copiava così un <c>MeshRendererComponent</c> che
+    ///   allora era una class, e dipingere la copia dipingeva l'originale.</item>
     /// </list>
+    /// ⚠️ <b>Oggi nessun componente è una class</b> (il <c>MeshRenderer</c>, l'ultimo, è
+    /// diventato struct), quindi la seconda metà non morde <i>adesso</i>. Resta scritta perché
+    /// questa firma è <c>object</c> e non impedisce a nessuno di aggiungerne una domani: il
+    /// giorno che succede, questo è il commento che spiega perché il codice intorno è fatto
+    /// così invece di sembrare paranoia.
+    ///
     /// Chi ha bisogno di un valore <b>indipendente</b> (duplicare, o tenere un "prima" per
     /// l'undo) non può usare questo da solo: serve una copia esplicita.
     /// </summary>

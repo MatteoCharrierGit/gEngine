@@ -63,18 +63,30 @@ Senza write-back **niente segnala l'errore**: il codice sembra funzionare e non 
 `MovementSystem` (write-back parziale che azzerava `Scale`/`Rotation`), l'Inspector, il gizmo, e
 altri due.
 
-### ⚠️⚠️ …e ha una seconda metà, che è costata un bug vero
+✅ **Da Fase 4.94 è sotto test** (`ComponentStorageTests`), incluso il giro per reflection che
+fa l'Inspector. Sabotando `SetBoxed` diventano rossi 7 test.
 
-Quella frase vale per gli **struct**. Se il componente è una **`class`** — oggi solo
-`MeshRendererComponent` — `GetBoxed` restituisce **il riferimento**:
+### ⚠️ …e ha una seconda metà, che è costata un bug vero
+
+Quella frase vale per gli **struct**. Se un componente fosse una **`class`**, `GetBoxed`
+restituirebbe **il riferimento**:
 
 - chi lo passa a una seconda entità **lega le due**;
 - chi lo tiene da parte come "il valore di prima" si ritrova un **alias** che la modifica
   successiva sovrascrive.
 
-Per una copia indipendente: **`ComponentCopy.Shallow`** (`MemberwiseClone` per reflection —
-prende anche i campi privati ed ereditati, che un giro di `GetFields` sbaglierebbe **in
-silenzio**). `DECISIONI.md` Fase 4.8. *(La conversione a struct è in `ROADMAP.md`.)*
+⚠️ **Oggi nessun componente è una class** — `MeshRendererComponent` era l'ultimo ed è diventato
+struct (Fase 4.94). Quindi questa metà **non morde adesso**. Resta scritta perché l'engine non
+vieta a nessuno di dichiararne una domani, e perché spiega perché il codice intorno è fatto
+così: `ComponentCopy.Shallow` è **ridondante e si tiene**, per non rendere `Duplicate` e gli
+snapshot dell'undo corretti *per coincidenza*. Il ragionamento intero è nel commento di
+`ComponentCopy`; il bug storico in `DECISIONI.md` Fase 4.8.
+
+### La regola, in una riga
+
+**Un componente è uno `struct`.** Se ti serve farne uno `class`, quello che ti serve davvero è
+quasi sempre una Resource — e se proprio dev'essere un componente, prima leggi le due metà qui
+sopra e i tre chiamanti di `ComponentCopy`.
 
 ### Altre regole del World
 

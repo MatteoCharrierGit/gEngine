@@ -244,9 +244,11 @@ public class SceneComponentRegistry
             // Un cubo bianco unitario e visibile: la forma che si vede senza aver caricato
             // niente. Model resta None — è un asset, e si trascina dal pannello File system.
             //
-            // ⚠️ MeshRendererComponent è l'unico componente che è una class: la factory deve
-            // costruirne uno NUOVO a ogni chiamata (come fa qui) e non restituire un'istanza
-            // condivisa, o tutte le entità che l'aggiungono editerebbero lo stesso oggetto.
+            // ⚠️ La factory costruisce un valore NUOVO a ogni chiamata, e va tenuta così: se
+            // restituisse un'istanza condivisa, con un componente a riferimento tutte le entità
+            // che l'aggiungono editerebbero lo stesso oggetto. Oggi il MeshRenderer è uno
+            // struct e il pericolo non c'è (l'assegnamento copia), ma la regola vale per tutte
+            // le factory di questo registry, comprese quelle che un gioco dichiarerà.
             createDefault: () => new MeshRendererComponent
             {
                 Kind = MeshKind.Cube,

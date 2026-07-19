@@ -425,12 +425,15 @@ public class InspectorPanel() : PanelBase("Inspector", Vector2.Zero, new Vector2
             foreach (var member in members)
                 changed |= DrawMember(member, context, boxed);
 
-            // Il write-back. Se il componente è uno struct, `boxed` è una COPIA: le
-            // SetValue di sopra hanno mutato la scatola, non lo storage. Senza questa
-            // riga l'Inspector sembrerebbe funzionare e non salverebbe niente — è lo
-            // stesso gotcha struct/copia dei system. Se invece è una class (es.
-            // MeshRendererComponent) la mutazione è già in loco e questa è una riscrittura
-            // dello stesso riferimento: innocua, e ci evita di distinguere i due casi.
+            // Il write-back. I componenti sono struct, quindi `boxed` è una COPIA: le
+            // SetValue di sopra hanno mutato la scatola, non lo storage. Senza questa riga
+            // l'Inspector sembrerebbe funzionare e non salverebbe niente — è lo stesso gotcha
+            // struct/copia dei system.
+            //
+            // ⚠️ Resta incondizionata apposta: con un componente a riferimento la mutazione
+            // sarebbe già in loco e questa diventerebbe una riscrittura dello stesso oggetto,
+            // cioè innocua. Costa una SetBoxed e ci evita di dover distinguere i due casi qui
+            // dentro, dove sbagliare vuol dire un Inspector che non salva in silenzio.
             if (changed)
             {
                 storage.SetBoxed(entity.Id, boxed);

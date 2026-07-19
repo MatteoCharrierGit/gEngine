@@ -95,8 +95,10 @@ public static class SceneObjects
                 // indietro.
                 //
                 // Il campo si cambia PRIMA di aggiungere, cosi' non c'e' nessuna domanda su
-                // cosa significhi mutare un componente gia' nello storage - che su
-                // MeshRendererComponent, unica class fra i componenti, sarebbe una domanda vera.
+                // cosa significhi mutare un componente gia' nello storage. Adesso che il
+                // MeshRenderer e' uno struct la domanda avrebbe una risposta netta (mutare la
+                // copia non tocca niente, serve il write-back), ma l'ordine giusto e' comunque
+                // questo: non c'e' niente da riscrivere se non si e' ancora scritto.
                 if (registry.TryCreateDefault(typeof(MeshRendererComponent), out var component) &&
                     component is MeshRendererComponent mesh)
                 {

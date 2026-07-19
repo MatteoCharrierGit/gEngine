@@ -110,8 +110,9 @@ i **RenderSystem** sono separati dagli altri (§5).
 L'ECS è mini e fatto a mano (`src/gEngine/Ecs/`).
 
 - **Entity** (`Ecs/Base/Entity.cs`): `readonly record struct Entity(int Id)` — solo un id.
-- **Component**: normali `struct`/`class` di **dati puri**, senza logica. Es.
-  `TransformComponent`, `MeshRendererComponent`, `ParentComponent`.
+- **Component**: normali `struct` di **dati puri**, senza logica. Es. `TransformComponent`,
+  `MeshRendererComponent`, `ParentComponent`. ⚠️ `struct` e non `class`, tutti: vedi il gotcha
+  della copia più sotto e [`DA_RICORDARE.md`](DA_RICORDARE.md#ecs).
 - **World** (`Ecs/Base/World.cs`): contenitore. Ogni tipo di componente ha il suo
   storage (dizionario `entityId → component`).
 
@@ -146,7 +147,7 @@ foreach (var (entity, transform, mesh) in world.Query<TransformComponent, MeshRe
 
 ### ⚠️ Gotcha: componenti `struct` = copia
 
-Se un componente è una `struct`, `GetComponent`/la query restituiscono una **copia**.
+I componenti sono `struct`, quindi `GetComponent`/la query restituiscono una **copia**.
 Mutarla non tocca lo storage: devi **riscrivere** con `AddComponent` (fa da upsert):
 
 ```csharp
@@ -155,8 +156,8 @@ t.Position += velocity * dt;     // muta solo la COPIA locale
 world.AddComponent(e, t);        // write-back: senza questa riga la modifica è persa
 ```
 
-(`MeshRendererComponent` è oggi una `class`, quindi si comporta per riferimento — ma
-non fare affidamento sul tipo: tratta il write-back come la regola.)
+⚠️ Vale per **tutti**, senza eccezioni: `MeshRendererComponent` era l'ultima `class` del lotto
+ed è diventato `struct`. Il write-back è la regola, non un caso particolare.
 
 ---
 
@@ -384,7 +385,7 @@ public void Draw(IRenderer renderer)
 Aggiungi un `MeshRendererComponent` (dati puri) accanto a un `TransformComponent`:
 
 ```csharp
-public class MeshRendererComponent
+public struct MeshRendererComponent
 {
     public MeshKind Kind;      // Cube | Plane | Grid | Model
     public Vector3 Size;
@@ -540,9 +541,10 @@ registry.Register("Velocity", data => data.Deserialize<VelocityComponent>(SceneJ
 
 - **Il default va scelto perché si veda**, non perché compili: è il criterio con cui sono
   scritti quelli dell'engine (`RegisterEngineDefaults`).
-- ⚠️ Se il componente è una **class** (come `MeshRendererComponent`), la factory deve
-  costruirne uno **nuovo a ogni chiamata**: restituire un'istanza condivisa farebbe editare
-  lo stesso oggetto a tutte le entità che l'aggiungono.
+- ⚠️ La factory deve costruire un valore **nuovo a ogni chiamata**. Con i componenti `struct`
+  di oggi l'assegnamento copia e il pericolo non c'è, ma se un componente fosse una **class**
+  restituire un'istanza condivisa farebbe editare lo stesso oggetto a tutte le entità che
+  l'aggiungono — ed è già successo una volta.
 - Senza `createDefault` il componente **resta nell'elenco dell'editor ma spento, col
   motivo**: è il caso di `Parent`, dove è voluto (un genitore di default non esiste — ci si
   riparenta dalla Hierarchy).

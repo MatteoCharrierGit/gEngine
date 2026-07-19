@@ -98,9 +98,11 @@ public static class EntityOperations
             // ⚠️ ComponentCopy e non il boxed nudo: per uno struct il boxing è già una copia,
             // per una CLASS è il riferimento — e le due entità finivano a condividere lo stesso
             // componente. Non era teorico: dipingere di rosso il MeshRenderer della copia
-            // dipingeva anche l'originale (verificato, poi corretto). Il commento qui sopra
-            // diceva "i componenti sono struct (o piccole class di dati), quindi GetBoxed
-            // basta": la parentesi era proprio il caso in cui non bastava.
+            // dipingeva anche l'originale (verificato, poi corretto).
+            //
+            // ⚠️ Da quando quel MeshRenderer è uno struct, qui NESSUN componente è una class e
+            // questa riga copia una copia. Resta perché toglierla renderebbe questo ciclo
+            // corretto per coincidenza — vedi ComponentCopy, dove sta il ragionamento intero.
             var component = storage.GetBoxed(source.Id);
             if (component is not null)
                 storage.SetBoxed(clone.Id, ComponentCopy.Shallow(component));

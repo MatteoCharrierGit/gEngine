@@ -4,7 +4,7 @@ using gEngine.Rendering;
 
 namespace gEngine.Ecs.Component;
 
-public class MeshRendererComponent
+public struct MeshRendererComponent
 {
     [EditorConfiguration] public MeshKind Kind;
     [EditorConfiguration] public Vector3 Size;

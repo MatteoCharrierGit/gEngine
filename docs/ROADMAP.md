@@ -19,7 +19,7 @@ Aggiornato al **19 luglio 2026**, branch `feat/editor-mvp`.
 | | |
 |---|---|
 | Build | `dotnet build gEngine.slnx --nologo -v q` → **0 errori, 0 warning** *(verificato)* |
-| Test | `dotnet test tests/gEngine.Tests` → **88 verdi** *(verificato)* |
+| Test | `dotnet test tests/gEngine.Tests` → **93 verdi** *(verificato)* |
 | Run | `dotnet run --project samples/Sandbox` — l'editor si apre di default, **F1** lo chiude |
 
 **Fasi**: 0–4 chiuse (editor MVP completo: hierarchy, inspector, gizmi, save/load, play/stop,
@@ -94,30 +94,6 @@ sembrare l'editor un prototipo più di ogni scelta di colore. Ma **non è un rit
 
 ## 2. Core / ECS
 
-### `MeshRendererComponent` da `class` a `struct`
-
-È **l'unica `class`** fra i dieci componenti, e non per una decisione: è un residuo del primo
-sistema di rendering che nessuno ha più toccato (`DECISIONI.md` Fase 2 lo annota come
-deviazione, senza motivarla).
-
-Il risparmio è un `AddComponent` di write-back. Il costo è già stato pagato **tre volte**:
-
-1. `EntityOperations.Duplicate` legava originale e copia — è nata `ComponentCopy.Shallow`
-   apposta (`DECISIONI.md` Fase 4.8).
-2. L'undo non sa confrontare due snapshot per valore e **sovra-registra** i comandi
-   (`EntityStateCommand.SnapshotsEqual`).
-3. Esiste un test che serve **solo** a questo tipo: se `TryCreateDefault` restituisse
-   un'istanza condivisa, creare una sfera trasformerebbe in sfera tutti i cubi già in scena
-   (`SceneObjectsTests`).
-
-Il conto è in perdita. La conversione dovrebbe essere meccanica — i due consumatori
-(`MeshRenderSystem`, `EntityPicker`) **solo leggono**, l'Inspector fa già write-back
-incondizionato, `SceneObjects` muta *prima* di aggiungere.
-- ⚠️ Il punto da verificare è il **binder** in `SceneComponentRegistry` (muta `mesh` dopo il
-  `Deserialize` per risolvere `ModelPath`).
-- ⚠️ Alla fine, controllare se `ComponentCopy.Shallow` resta **senza clienti**: in quel caso va
-  tolta, non lasciata lì a suggerire un pericolo che non c'è più.
-
 ### Cache dei transform con dirty flag
 
 Oggi `GetWorldMatrix` risale la catena **ricorsivamente a ogni chiamata**, senza cache e
@@ -142,12 +118,13 @@ anni).
 
 ## 3. Test
 
-Il progetto esiste (`tests/gEngine.Tests`, xUnit, 88 verdi) e copre serializzazione, ciclo di
-vita dei system, file degli asset e log. Restano scoperti i due pezzi che reggono tutto il resto.
+Il progetto esiste (`tests/gEngine.Tests`, xUnit, 93 verdi) e copre serializzazione, ciclo di
+vita dei system, file degli asset, log e lo storage dei componenti.
 
-- **ECS** — `CreateEntity`, `AddComponent`/`GetComponent`, `Query<..>`.
-- ⚠️ **Il gotcha struct/copia** (mutazione + write-back). **Ha già morso cinque volte**, ed è
-  la voce col rapporto costo/danno peggiore di tutta questa lista.
+- **ECS** — `CreateEntity`, `AddComponent`/`GetComponent`, `Query<..>` restano scoperti.
+- ~~Il gotcha struct/copia~~ **coperto** (Fase 4.94, `ComponentStorageTests`): il giro
+  `GetBoxed` → muta → `SetBoxed`, anche per reflection come lo fa l'Inspector, più il
+  write-back intero del Transform. Era la voce col rapporto costo/danno peggiore della lista.
 - **Undo/redo** — è l'altro pezzo che regge tre cose e che nessuno ricontrolla.
 - Le verifiche numeriche vecchie (200k rotazioni, `SetWorldPose` su 50k pose, errore di
   proiezione) sono state fatte con **app scratch buttate via**: non c'è niente che le

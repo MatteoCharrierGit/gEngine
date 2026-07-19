@@ -46,11 +46,19 @@ public class SceneObjectsTests
     }
 
     /// <summary>
-    /// ⚠️⚠️ Il test che protegge dal gotcha più caro di questo repo.
-    /// <c>MeshRendererComponent</c> è l'<b>unica class</b> fra i componenti: se
-    /// <c>TryCreateDefault</c> restituisse un'istanza condivisa invece di costruirne una nuova,
-    /// creare una sfera trasformerebbe in sfera <b>anche tutti i cubi già in scena</b>, e la
-    /// modifica arriverebbe senza che nessuno l'abbia chiesta.
+    /// Creare una sfera non tocca i cubi già in scena.
+    ///
+    /// ⚠️ <b>Questo test è cambiato di significato, e vale la pena saperlo.</b> Nasceva contro
+    /// il gotcha più caro del repo: <c>MeshRendererComponent</c> era l'unica <c>class</c> fra i
+    /// componenti, quindi una <c>TryCreateDefault</c> che restituisse un'istanza condivisa
+    /// avrebbe trasformato in sfera <b>anche tutti i cubi già in scena</b>. Da quando quel
+    /// componente è uno struct, l'aliasing non è più possibile e questa parte non può fallire.
+    ///
+    /// Resta perché copre ancora una cosa vera: che il ramo <c>Sphere</c> di
+    /// <c>SceneObjects</c> parta dal default e ne cambi <b>un campo solo</b>, senza toccare le
+    /// entità già create. È un test più debole di prima — non più una rete su un gotcha, ma il
+    /// controllo che il catalogo degli oggetti si comporti bene. Chi lo legge deve sapere che
+    /// non sta più guardando le spalle a nessuno.
     /// </summary>
     [Fact]
     public void CreareUnaSfera_NonTrasformaInSferaICubiGiaInScena()

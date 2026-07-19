@@ -1892,6 +1892,109 @@ va tolta, perché è lo stesso codice morto che la Fase 4.91 ha trovato nel logg
 
 ---
 
+## Fase 4.94 — `MeshRendererComponent` diventa struct, e il gotcha finisce sotto test 🟢
+
+*Domanda del proprietario: «perché il mesh renderer è una class e non un component?». È un
+componente — la domanda vera era perché fosse l'unica `class` del lotto.*
+
+### Non era una decisione: era un residuo
+
+Nessun commento la giustificava. La ROADMAP la **annotava** come deviazione — *«(attualmente
+`class`, non `struct`)»* — e un'annotazione senza motivo accanto, in questo repo, vuol dire che
+un motivo non c'è mai stato. Nasce col primo sistema di rendering e nessuno l'ha più toccata.
+
+Il risparmio era un `AddComponent` di write-back. Il costo era già stato pagato **tre volte**:
+
+1. **Aliasing su `Duplicate`** — originale e copia condividevano il componente, dipingere la
+   copia dipingeva l'originale (Fase 4.8). È nata `ComponentCopy.Shallow` apposta.
+2. **Undo che sovra-registra** — `SnapshotsEqual` cade sul confronto per riferimento per una
+   class senza `Equals`, quindi ogni gesto che toccava il MeshRenderer registrava un comando
+   *anche quando nulla era cambiato*.
+3. **Un test che serviva solo a lui** — se `TryCreateDefault` avesse restituito un'istanza
+   condivisa, creare una sfera avrebbe trasformato in sfera tutti i cubi già in scena.
+
+Conto in perdita. Convertito.
+
+### ⚠️⚠️ Ha compilato con 0 errori e 0 warning, ed è il caso pericoloso
+
+Il gotcha struct/copia **compila sempre**: `class` → `struct` non rompe niente a compile time,
+rompe in silenzio a runtime dove qualcuno mutava affidandosi al riferimento. Quindi i punti si
+sono cercati **a mano**, non aspettando il compilatore:
+
+| Punto | Esito |
+|---|---|
+| `MeshRenderSystem`, `EntityPicker` | leggono soltanto ✅ |
+| `InspectorPanel` | write-back `SetBoxed` **incondizionato**, già scritto per gli struct ✅ |
+| Slot asset / drag&drop del modello | passa dallo **stesso** giro boxed dell'Inspector ✅ |
+| `SceneObjects` (sfera) | muta *prima* di aggiungere ✅ |
+| Binder in `SceneComponentRegistry` | muta un locale e lo restituisce ✅ |
+
+⚠️ Il punto più delicato era il drag&drop: sembrava scrivere "dentro" il componente, e invece
+`member.Set(target, ...)` scrive sulla **scatola** che poi `SetBoxed` riscrive. Corretto per
+struct perché `FieldInfo.SetValue` su uno struct *boxato* muta la scatola — se lo stesso codice
+girasse su un valore non boxato si perderebbe nel nulla.
+
+### La chirurgia sui commenti conta quanto la conversione
+
+**Sette punti del codice dichiaravano che questo tipo è una class.** Lasciarli avrebbe violato
+la regola del repo peggio di come stava prima, perché un commento che mente su un *pericolo*
+manda a cercare bug dove non ce ne sono. Riscritti tutti: `IComponentStorage`,
+`EntityStateCommand`, `SceneComponentRegistry`, `SceneObjects`, `InspectorPanel`,
+`EntityOperations`, `SceneObjectsTests`.
+
+⚠️ Il test `CreareUnaSfera_NonTrasformaInSferaICubiGiaInScena` **è cambiato di significato**:
+non è più una rete su un gotcha (l'aliasing non è più possibile), è il controllo che il ramo
+Sphere parta dal default e cambi un campo solo. Lo dice il suo commento — un test che protegge
+meno di quanto il suo nome suggerisce è una trappola per chi lo legge fra sei mesi.
+
+### `ComponentCopy.Shallow` resta, e la ragione va letta prima di toglierla
+
+Ora che **tutti** i componenti sono struct, `GetBoxed` copia già: quella chiamata è una copia di
+una copia. La ROADMAP diceva «se resta senza clienti va tolta» — ma non è rimasta senza clienti,
+è rimasta **ridondante**, che è un'altra cosa. Si tiene perché:
+
+1. i tre chiamanti diventerebbero **corretti per coincidenza**, non per costruzione;
+2. il giorno che qualcuno dichiara un componente `class` — l'engine non lo vieta, e la firma
+   `object` di `GetBoxed` nemmeno — si romperebbero **in silenzio e in tre punti**;
+3. costa una `MemberwiseClone` su duplica e snapshot, cioè su un'azione dell'utente, non per
+   frame.
+
+È una rete che oggi non prende niente, sopra un salto già fatto una volta.
+
+### ⚠️ Il regalo: il gotcha struct/copia finisce sotto test dopo cinque morsi
+
+Convertendo si è visto che il percorso `GetBoxed` → muta → `SetBoxed` **non era coperto da
+niente**, pur essendo il meccanismo su cui si regge l'Inspector. È la voce aperta dalla Fase 0
+col rapporto costo/danno peggiore di tutta la lista. Ora c'è `ComponentStorageTests`:
+
+- la copia mutata **non** tocca lo storage (la metà che ha morso cinque volte);
+- col write-back la modifica arriva;
+- lo stesso giro **per reflection**, che è come lo fa davvero l'Inspector;
+- il write-back **intero** del Transform (il bug di `MovementSystem` che azzerava
+  `Scale`/`Rotation`);
+- `Duplicate` dà entità indipendenti — il test di regressione del bug della Fase 4.8.
+
+**Sabotato `SetBoxed`** (corpo svuotato): **7 test rossi**. La rete prende.
+
+### Verificato anche a video
+
+Un test non dice se la scena si disegna ancora, e questo componente è ciò che disegna **tutto**.
+Avviato il Sandbox, screenshot: cubi che cadono, il modello, le luci, il pavimento, la glass-box
+e la wireframe-box — identico agli scatti di prima della conversione. Nessuna eccezione su
+stderr, log pulito. Codice temporaneo dello screenshot rimosso e verificato che non ne resti
+traccia.
+
+### Nota di misura, dichiarata
+
+`GetRenderMatrix` prende ora il componente con **`in`**: da struct, passarlo per valore copierebbe
+una cinquantina di byte per entità **per frame**, per leggere un campo solo. ⚠️ Resta che
+`Query<Transform, MeshRenderer>` adesso copia il componente intero dove prima copiava un
+puntatore. È un peggioramento reale e trascurabile: lo storage è un `Dictionary<int, T>`, e il
+costo di quello domina qualunque copia. Se un giorno l'ECS passerà ad array densi, quella è la
+misura da rifare — non questa.
+
+---
+
 ## Fase 5 — Profondità 3D: asset, materiali, luci, fisica 🔴
 
 Da "cubi colorati" a "scena 3D vera".

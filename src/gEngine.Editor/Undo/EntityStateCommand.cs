@@ -73,11 +73,15 @@ public sealed class EntityStateCommand : IEditorCommand
     /// passano comunque dai confini del gesto. Un "annulla" che non fa niente è peggio di un
     /// bottone spento — sembra rotto.
     ///
-    /// ⚠️ Regge su <c>Equals</c>: gli struct l'hanno per valore da sé, quindi i componenti
-    /// dell'engine sono confrontati davvero. Una <b>class</b> senza <c>Equals</c> cade sul
-    /// confronto per riferimento e due copie risultano sempre diverse — quindi il comando si
-    /// registra anche se nulla è cambiato. È il verso sicuro dello sbaglio (uno "annulla" in
-    /// più, non uno in meno) ed è il caso di <c>MeshRendererComponent</c>.
+    /// ⚠️ Regge su <c>Equals</c>: gli struct l'hanno per valore da sé, e da quando il
+    /// <c>MeshRenderer</c> è diventato struct <b>tutti</b> i componenti sono confrontati
+    /// davvero. Prima era l'unica class del lotto e cadeva sul confronto per riferimento: due
+    /// copie risultavano sempre diverse, quindi ogni gesto che lo toccava registrava un comando
+    /// <i>anche quando nulla era cambiato</i>. Era il verso sicuro dello sbaglio (uno "annulla"
+    /// in più, non uno in meno), ma era uno sbaglio, e adesso non c'è più.
+    ///
+    /// ⚠️ Una class senza <c>Equals</c> rifarebbe esattamente quello. È il secondo motivo per
+    /// cui i componenti restano struct, dopo l'aliasing.
     /// </summary>
     private static bool SnapshotsEqual(EntitySnapshot a, EntitySnapshot b)
     {
