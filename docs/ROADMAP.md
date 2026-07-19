@@ -1548,11 +1548,67 @@ handle nullo e non succedeva niente — che è indistinguibile da "il codice non
   cestino assente), più il controllo che i messaggi d'errore stiano in **Latin-1** — finiscono
   sotto ImGui, che col font di default mostra `?` per tutto il resto
 
-### Cosa resta del punto 2
+---
 
-**"Creare oggetti dei tipi basilari"** non è stato fatto: vedi l'handoff, è l'unica parte del
-punto 2 su cui il testo si presta a due letture diverse (un'entità cubo/luce/camera è roba
-della Hierarchy, non della cartella asset) e va decisa, non indovinata.
+## Fase 4.89 — "Crea oggetto", e la sfera che non c'era 🟢
+
+Ultimo pezzo del punto 2. Il catalogo degli oggetti di scena — **Cubo, Sfera, Luce, Camera,
+Vuoto** — deciso dal proprietario, e in **entrambi** i pannelli: la Hierarchy (dove il comando
+sta di casa) e il File system come scorciatoia.
+
+### ⚠️ La sfera non esisteva, e offrirla sarebbe stato il bug peggiore
+
+`MeshKind` aveva `Cube`, `Plane`, `Grid`, `Model`. Una voce "Sfera" avrebbe creato un'entità che
+si vede come un cubo o non si vede: cioè **il bug che assomiglia a un no-op**, quello che la
+Fase 4.7 dichiara come il più caro da cercare. Detto al proprietario invece di sostituire in
+silenzio "Sfera" con "Piano".
+
+- [x] **`MeshKind.Sphere`** + il caso in `RayLibRenderer`, sullo schema esatto del cubo:
+  `GenMeshSphere(0.5f, 16, 16)`, una mesh **unitaria condivisa** da tutta la scena, la stessa
+  trasposizione della matrice e lo stesso ramo wireframe
+  - Raggio 0.5, cioè **inscritta nel cubo unitario**: a `Scale = 1` le due primitive sono
+    confrontabili a colpo d'occhio
+  - Passa dalla **matrice di mondo completa**, quindi rotazione e scala non uniforme funzionano
+    (a differenza di `Plane`, che usa solo la traslazione)
+  - Scaricata in `Shutdown` accanto a `_unitCubeMesh`
+  - ⚠️ Il **picking** la tratta come un cubo (`MeshRenderSystem` e `Ray` usano un AABB a cubo
+    unitario): si clicca anche un po' fuori, agli angoli del cubo circoscritto. È lo stesso grado
+    di approssimazione già accettato per `Model`, non un caso nuovo
+  - Di sponda: rende **visibile** `ColliderShape.Sphere`, che finora si simulava al buio
+
+### `SceneObjects`: un catalogo solo, due pannelli
+
+- [x] **Non è codice nuovo, è un assemblaggio**: `EntityOperations.Create` più i **default
+  dichiarati** nel `SceneComponentRegistry`. Quei valori esistono dalla Fase 4.7 e sono scelti
+  perché aggiungere il componente **si veda**: ricostruirli qui darebbe due verità su cosa sia
+  un cubo, e quella sbagliata sarebbe la nuova
+- [x] ⚠️ La sfera parte dal default del MeshRenderer e cambia **un campo**, **prima** di
+  aggiungerlo allo storage — così non c'è nessuna domanda su cosa significhi mutare un
+  componente già dentro, che su `MeshRendererComponent` (unica class fra i componenti) sarebbe
+  una domanda vera. C'è un test che fallisce se creare una sfera trasformasse in sfera i cubi
+  già in scena
+- [x] ⚠️ Lo `switch` è su un **enum**, non sull'etichetta del menu: il giorno che "Cubo" diventa
+  "Cubo (primitiva)", il cubo smetterebbe di avere una mesh in silenzio
+- [x] Il nome dell'entità è quello della voce ("Cubo", "Sfera") e viene **reso libero**: due
+  omonime collassano nella mappa nome→Entity al reload, e con un menu che crea cubi a ripetizione
+  il caso arriva al secondo clic
+- [x] **Passa dall'undo**: creare è l'azione che si fa per sbaglio con un clic
+- [x] ⚠️ Senza `SceneComponentRegistry` (lo dichiara il gioco, può mancare) resta creabile solo
+  **Vuoto**; il resto è **spento col motivo**, non nascosto
+- [x] Nel File system il tooltip dice esplicitamente *«nasce nella SCENA, non in questa
+  cartella»*: è l'unico comando di quel pannello che non riguarda il disco
+
+### Come è stato verificato
+
+16 test su `SceneObjects` (i componenti giusti, l'aliasing della class, i nomi liberi, l'undo,
+il caso senza registry, le etichette in Latin-1). Il menu e la creazione end-to-end col rig:
+clic destro nella Hierarchy → Crea oggetto → Sfera → l'entità compare nell'albero, selezionata,
+con `Kind = Sphere` e `Visible` nell'Inspector.
+
+⚠️ **Onestà su un punto**: che a schermo la sfera sia *disegnata come una sfera* l'ha confermato
+**il proprietario guardando**, non il rig. Il rig non è riuscito né a spostarla col gizmo (il
+trascinamento sintetico è il limite noto) né a distinguerla dal personaggio che sta anch'esso
+nell'origine.
 
 ---
 

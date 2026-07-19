@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using gEngine.Ecs.Base;
 using gEngine.Ecs.Component;
 using gEngine.Editor.Undo;
@@ -25,7 +25,20 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
     private readonly List<Entity> _roots = [];
 
     /// <summary>Comando richiesto in questo frame, applicato a fine disegno. Vedi ApplyPendingCommand.</summary>
-    private enum Command { None, Create, CreateChild, Duplicate, Destroy, Reparent }
+    private enum Command { None, Create, CreateChild, CreateObject, Duplicate, Destroy, Reparent }
+
+    /// <summary>
+    /// Quale oggetto del catalogo, per <see cref="Command.CreateObject"/>. Vedi
+    /// <see cref="SceneObjects"/>.
+    /// </summary>
+    private SceneObjects.Entry _objectToCreate;
+
+    /// <summary>
+    /// Se l'oggetto va creato <b>sotto</b> <see cref="_target"/> o a radice. Serve un flag e non
+    /// basta guardare <c>_target</c>: <c>default(Entity)</c> e' un'entita' valida come tipo ma
+    /// non e' "nessuna", e confonderla con la radice creerebbe figli di un'entita' inesistente.
+    /// </summary>
+    private bool _createUnderTarget;
 
     private Command _command = Command.None;
 
@@ -61,7 +74,7 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
         if (ImGui.IsWindowHovered() && ImGui.IsMouseClicked(ImGuiMouseButton.Left))
             context.ClearSelection();
 
-        DrawWindowContextMenu();
+        DrawWindowContextMenu(context);
 
         // Le operazioni sono applicate DOPO aver disegnato l'albero: creare o eliminare
         // un'entità mentre lo si percorre significherebbe modificare gli storage che
@@ -78,7 +91,7 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
     /// ImGui non ha niente da segnalare — si vedrebbe solo il menu sbagliato, quello senza
     /// Duplica/Elimina, esattamente dove ci si aspetta l'altro.
     /// </summary>
-    private void DrawWindowContextMenu()
+    private void DrawWindowContextMenu(EditorContext context)
     {
         if (!ImGui.BeginPopupContextWindow("hierarchy-vuoto",
                 ImGuiPopupFlags.MouseButtonRight | ImGuiPopupFlags.NoOpenOverItems))
@@ -87,7 +100,51 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
         if (ImGui.MenuItem("Crea entità"))
             _command = Command.Create;
 
+        DrawCreateObjectMenu(context, parent: null);
+
         ImGui.EndPopup();
+    }
+
+    /// <summary>
+    /// Il sottomenu "Crea oggetto": cubo, sfera, luce, camera, vuoto.
+    ///
+    /// È un <b>sottomenu</b> e non cinque voci in fila perché convive con "Crea entità" e
+    /// "Duplica": appiattirlo darebbe un menu di otto voci in cui le due che contano davvero —
+    /// quella nuda e quella che si vede — non si distinguono più.
+    ///
+    /// ⚠️ Le voci che vogliono i default del gioco restano <b>spente col motivo</b> se il
+    /// registry non c'è, invece di sparire: vedi <see cref="SceneObjects"/>.
+    /// </summary>
+    private void DrawCreateObjectMenu(EditorContext context, Entity? parent)
+    {
+        if (!ImGui.BeginMenu("Crea oggetto"))
+            return;
+
+        var hasRegistry = context.Components is not null;
+
+        foreach (var entry in SceneObjects.All)
+        {
+            var enabled = hasRegistry || !entry.NeedsRegistry;
+
+            if (ImGui.MenuItem(entry.Label, enabled: enabled))
+            {
+                _command = Command.CreateObject;
+                _objectToCreate = entry;
+                _target = parent ?? default;
+                _createUnderTarget = parent is not null;
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(enabled
+                    ? entry.Tooltip
+                    : "Il gioco non ha dichiarato un SceneComponentRegistry fra le sue Resource,\n" +
+                      "quindi l'editor non sa con quali valori nasce un MeshRenderer o una Luce.\n" +
+                      "Resta creabile \"Vuoto\", che non ha bisogno di nessun default.");
+            }
+        }
+
+        ImGui.EndMenu();
     }
 
     /// <summary>
@@ -96,7 +153,7 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
     /// tenevano occupata una riga del pannello per dire cose che valgono per l'entità che si
     /// sta guardando.
     /// </summary>
-    private void DrawEntityContextMenu(Entity entity)
+    private void DrawEntityContextMenu(EditorContext context, Entity entity)
     {
         if (!ImGui.BeginPopupContextItem())
             return;
@@ -106,6 +163,11 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
             _command = Command.CreateChild;
             _target = entity;
         }
+
+        // Lo stesso catalogo del menu nel vuoto, ma come FIGLIO della riga cliccata: il destro
+        // su un'entita' parla di quell'entita', e "crea un cubo" li' dentro significa "attaccalo
+        // a questa".
+        DrawCreateObjectMenu(context, entity);
 
         if (ImGui.MenuItem("Duplica"))
         {
@@ -170,6 +232,12 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
             return;
         }
 
+        if (command == Command.CreateObject && !_createUnderTarget)
+        {
+            CreateObject(world, context, parent: null);
+            return;
+        }
+
         // Il bersaglio è stato scelto un frame fa, e nel frattempo il mondo ha girato: un
         // system (o il caricamento di un'altra scena) può averlo distrutto.
         if (!world.Exists(_target))
@@ -180,6 +248,10 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
             case Command.CreateChild:
                 context.Select(Created(world, context, "crea entità figlia",
                     () => EntityOperations.Create(world, _target)));
+                break;
+
+            case Command.CreateObject:
+                CreateObject(world, context, _target);
                 break;
 
             case Command.Duplicate:
@@ -214,6 +286,20 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
 
                 break;
         }
+    }
+
+    /// <summary>
+    /// Crea un oggetto del catalogo e lo seleziona.
+    ///
+    /// ⚠️ <c>null</c> da <c>SceneObjects.Create</c> non e' un errore da segnalare qui: significa
+    /// che il registry del gioco non c'e', e in quel caso la voce di menu era gia' spenta col
+    /// motivo. Si arriva qui solo se il registry e' sparito nel frame trascorso fra il clic e
+    /// adesso - cioe' praticamente mai, e comunque non e' colpa di chi ha cliccato.
+    /// </summary>
+    private void CreateObject(World world, EditorContext context, Entity? parent)
+    {
+        if (SceneObjects.Create(world, context, _objectToCreate, parent) is { } created)
+            context.Select(created);
     }
 
     /// <summary>
@@ -306,7 +392,7 @@ public class HierarchyPanel() : PanelBase("Hierarchy", new Vector2(20, 40), new 
 
         // Subito dopo l'item: BeginPopupContextItem senza id usa l'id dell'ultimo disegnato,
         // cioè questa riga. Prima di scendere nei figli, che diventerebbero "l'ultimo item".
-        DrawEntityContextMenu(entity);
+        DrawEntityContextMenu(context, entity);
 
         if (open && hasChildren)
         {

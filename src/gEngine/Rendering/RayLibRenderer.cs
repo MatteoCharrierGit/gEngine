@@ -1,4 +1,4 @@
-using System.Numerics;
+﻿using System.Numerics;
 using gEngine.Assets;
 using Raylib_cs;
 
@@ -9,6 +9,12 @@ public unsafe class RayLibRenderer : IRenderer
     private const int MaxLights = 7; // deve combaciare con MAX_LIGHTS in Shaders/lit.fs
 
     private readonly Mesh _unitCubeMesh;
+
+    // Sfera di raggio 0.5, cioe' inscritta nel cubo unitario: cosi' Scale = 1 da' un oggetto
+    // grande quanto un cubo di lato 1, e le due primitive sono confrontabili a colpo d'occhio.
+    // Rings/slices sono la risoluzione: 16x16 e' liscia a schermo e resta una mesh piccola -
+    // ne esiste UNA sola per tutta la scena, condivisa da ogni entita' che disegna una sfera.
+    private readonly Mesh _unitSphereMesh;
     private Material _defaultMaterial;
 
     // Sorgente dei modelli: l'altro adapter raylib. Serve a risolvere ModelHandle → Model
@@ -42,6 +48,7 @@ public unsafe class RayLibRenderer : IRenderer
     {
         _assetBackend = assetBackend;
         _unitCubeMesh = Raylib.GenMeshCube(1f, 1f, 1f);
+        _unitSphereMesh = Raylib.GenMeshSphere(0.5f, 16, 16);
         _defaultMaterial = Raylib.LoadMaterialDefault();
 
         SetupLightShader();
@@ -210,6 +217,25 @@ public unsafe class RayLibRenderer : IRenderer
                 }
                 break;
 
+            case MeshKind.Sphere:
+                // Identico al cubo, mesh a parte: stessa trasposizione della matrice (vedi
+                // sopra il perche'), stesso material, stesso ramo wireframe. Passa dalla
+                // matrice di mondo COMPLETA, quindi rotazione e scala non uniforme funzionano
+                // - al contrario di Plane, che usa solo la traslazione.
+                var sphereWorld = Matrix4x4.Transpose(command.World);
+
+                _defaultMaterial.Maps[(int)MaterialMapIndex.Albedo].Color = color;
+                Raylib.DrawMesh(_unitSphereMesh, _defaultMaterial, sphereWorld);
+
+                if (command.Wireframe)
+                {
+                    _defaultMaterial.Maps[(int)MaterialMapIndex.Albedo].Color = Raylib_cs.Color.Black;
+                    Rlgl.EnableWireMode();
+                    Raylib.DrawMesh(_unitSphereMesh, _defaultMaterial, sphereWorld);
+                    Rlgl.DisableWireMode();
+                }
+                break;
+
             case MeshKind.Plane:
                 Raylib.DrawPlane(command.World.Translation, new Vector2(command.Size.X, command.Size.Z), color);
                 break;
@@ -314,6 +340,7 @@ public unsafe class RayLibRenderer : IRenderer
         Raylib.UnloadShader(_litShader);
         Raylib.UnloadShader(_unlitShader);
         Raylib.UnloadMesh(_unitCubeMesh);
+        Raylib.UnloadMesh(_unitSphereMesh);
         // NB: _defaultMaterial usa _litShader (già scaricato sopra). Non chiamiamo
         // UnloadMaterial per evitare un doppio-unload dello shader su alcune versioni
         // di raylib; al termine del processo la memoria è comunque liberata.

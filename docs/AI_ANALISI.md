@@ -8,15 +8,17 @@
 
 Lavoro su branch `feat/editor-mvp`, tutto committato.
 Build: `dotnet build gEngine.slnx --nologo -v q --no-incremental` → **0 errori, 0 warning**.
-Test: `dotnet test tests/gEngine.Tests` → **53 verdi**.
+Test: `dotnet test tests/gEngine.Tests` → **69 verdi**.
 Run: `dotnet run --project samples/Sandbox` (l'editor si apre di default, F1 lo chiude).
 
 **I quattro buchi da chiudere prima del piano sono chiusi tutti e quattro**, e del piano il
-**punto 2** (FileSystem completo) è fatto salvo un pezzo: il disco si modifica e sotto
-"elimina" c'è il cestino (Fase 4.88). Di quel punto resta *«creare oggetti dei tipi basilari»*,
-che è **una decisione da prendere, non del lavoro da fare** — vedi il punto 2 più sotto.
+**punto 2** (FileSystem completo) è **chiuso**: il disco si modifica con il cestino come rete
+(Fase 4.88) e "crea oggetto" c'è in Hierarchy e File system (Fase 4.89).
 
-Poi si riprende dal **punto 1** (Console in-editor), che è ancora intero.
+Si riprende dal **punto 1** (Console in-editor), che è ancora intero. ⚠️ Ha un prerequisito
+dichiarato dalla Fase 0 e mai fatto: *«`GameLoop` istanzia `_logger` ma non lo passa mai a
+`IGame`/ai system»* — prima di una console serve che il logger sia raggiungibile, e il posto
+sono le `Resources`.
 
 ⚠️ **I binari degli asset sono fuori da git** — decisione presa dal proprietario, niente Git
 LFS. `.gitignore` esclude `assets/models/` e `assets/audio/`; i 29 MB che erano già tracciati
@@ -53,7 +55,7 @@ usciti dal `.csproj` e vivono lì.
   scena non è serializzabile non si parte: fallendo al Play si perde un clic, fallendo allo
   Stop si perde il lavoro). Con questo **la Fase 4 è chiusa**.
 
-### Fatto nell'ultima sessione (quattro commit)
+### Fatto nell'ultima sessione (cinque commit)
 
 1. **I binari degli asset fuori da git** (vedi il riquadro qui sopra).
 2. **Il primo progetto di test** (buco C) — `tests/gEngine.Tests`. ⚠️ Da lì è uscita la cosa
@@ -64,6 +66,8 @@ usciti dal `.csproj` e vivono lì.
    come rete. ⚠️ E un bug che nessun test avrebbe preso: `OpenPopup` chiamata dentro un menu
    contestuale **non apre niente**, perché l'id si calcola nell'ID stack corrente. Dalla barra
    funzionava, dal menu no, e i due rami rileggendoli sono identici. Vedi `ROADMAP.md` Fase 4.88.
+5. **"Crea oggetto"** in Hierarchy e File system, e `MeshKind.Sphere` nel renderer perche' la
+   sfera del menu fosse una sfera vera. Vedi `ROADMAP.md` Fase 4.89.
 
 ### Fatto nella sessione precedente (i cinque commit)
 
@@ -277,16 +281,10 @@ posto (`resources.Add<ILogger>(...)`).
   contestuale non apre niente, perché l'id si calcola nell'ID stack corrente. Vedi `ROADMAP.md`
   **Fase 4.88**, e **leggila prima di aggiungere modali** in un pannello.
 
-⚠️ **Resta**: *«creare oggetti dei tipi basilari direttamente da lì»*. Non è stato fatto perché
-la frase si presta a **due letture diverse** e la differenza è dove va il codice:
-- un'entità cubo/luce/camera è roba della **Hierarchy** (che già crea entità e ha l'aggancio
-  all'undo), non della cartella asset — in Unity il pannello dei file crea *asset*, la gerarchia
-  crea *oggetti di scena*;
-- oppure si intende davvero un comando "crea un cubo in scena" dentro il pannello File system.
-
-Il meccanismo è lo stesso in entrambi i casi e non è codice nuovo — `EntityOperations.Create` +
-due `TryCreateDefault` dal `SceneComponentRegistry` — quindi la domanda è solo **dove**. Da
-decidere col proprietario, non da indovinare.
+- Fase 4.89: **"crea oggetto"** (Cubo, Sfera, Luce, Camera, Vuoto) in **entrambi** i pannelli,
+  deciso dal proprietario. Catalogo unico in `SceneObjects`, così il cubo non può nascere diverso
+  a seconda di dove lo si chiede. ⚠️ La **sfera non esisteva**: `MeshKind` non ce l'aveva, ed è
+  stata aggiunta al renderer invece di offrire una voce che non disegna niente.
 
 **3. Interfaccia per l'InputHandler e per i system.** L'`InputHandler` è una classe concreta e i
 system se la prendono nel costruttore: è l'ultima dipendenza del gioco che non passa da una

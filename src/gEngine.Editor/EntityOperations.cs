@@ -33,11 +33,20 @@ public static class EntityOperations
     /// <b>locale</b>: neutro significa "sovrapposta al genitore", che è il posto da cui ci si
     /// aspetta di partire quando si crea un figlio.
     /// </param>
-    public static Entity Create(World world, Entity? parent = null)
+    /// <param name="name">
+    /// Come chiamarla, prima di renderlo libero. Serve a chi crea qualcosa di <b>riconoscibile</b>
+    /// — un "Cubo", una "Luce" — perché "Nuova entità (3)" nella Hierarchy costringe a cliccarla
+    /// per sapere cos'è. Resta opzionale: chi crea un'entità nuda non ha un nome migliore da
+    /// dare.
+    /// </param>
+    public static Entity Create(World world, Entity? parent = null, string? name = null)
     {
         var entity = world.CreateEntity();
 
-        world.AddComponent(entity, new NameComponent { Value = FreeName(world, DefaultName) });
+        world.AddComponent(entity, new NameComponent
+        {
+            Value = FreeName(world, string.IsNullOrWhiteSpace(name) ? DefaultName : name.Trim())
+        });
 
         world.AddComponent(entity, new TransformComponent
         {

@@ -161,7 +161,7 @@ public class FileSystemPanel(string root, IFileTrash trash)
 
         // Il menu contestuale dello sfondo: clic destro nel vuoto per creare. È dentro il
         // BeginChild perché è quella la regione che si vede come "la cartella".
-        DrawBackgroundContextMenu();
+        DrawBackgroundContextMenu(world, context);
 
         ImGui.EndChild();
 
@@ -681,7 +681,7 @@ public class FileSystemPanel(string root, IFileTrash trash)
     }
 
     /// <summary>Clic destro nel vuoto: crea, senza dover mirare la barra in alto.</summary>
-    private void DrawBackgroundContextMenu()
+    private void DrawBackgroundContextMenu(World world, EditorContext context)
     {
         if (!ImGui.BeginPopupContextWindow("sfondo",
                 ImGuiPopupFlags.MouseButtonRight | ImGuiPopupFlags.NoOpenOverItems))
@@ -693,7 +693,55 @@ public class FileSystemPanel(string root, IFileTrash trash)
         if (ImGui.MenuItem("Nuova cartella"))
             OpenNewFolder();
 
+        DrawCreateObjectMenu(world, context);
+
         ImGui.EndPopup();
+    }
+
+    /// <summary>
+    /// "Crea oggetto" anche da qui: cubo, sfera, luce, camera, vuoto.
+    ///
+    /// ⚠️ <b>È una scorciatoia, e va detto che lo è.</b> L'oggetto nasce nella <b>scena</b>, non
+    /// nella cartella che si sta guardando: le due cose non c'entrano niente l'una con l'altra,
+    /// e questo è l'unico comando del pannello che non riguarda il disco. Il posto proprio è la
+    /// Hierarchy — questo chiama esattamente lo stesso <see cref="SceneObjects"/>, così il cubo
+    /// non può nascere diverso a seconda di dove lo si è chiesto.
+    /// </summary>
+    private void DrawCreateObjectMenu(World world, EditorContext context)
+    {
+        if (!ImGui.BeginMenu("Crea oggetto in scena"))
+            return;
+
+        var hasRegistry = context.Components is not null;
+
+        foreach (var entry in SceneObjects.All)
+        {
+            var enabled = hasRegistry || !entry.NeedsRegistry;
+
+            if (ImGui.MenuItem(entry.Label, enabled: enabled))
+            {
+                // Come le mutazioni del disco: applicato a fine frame. Qui non si sta scorrendo
+                // il World, ma la regola vale lo stesso e tenerla uguale in tutto il pannello
+                // costa meno che ricordarsi quali comandi sono l'eccezione.
+                var chosen = entry;
+                _pending = () =>
+                {
+                    if (SceneObjects.Create(world, context, chosen) is { } created)
+                        context.Select(created);
+                };
+            }
+
+            if (ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            {
+                ImGui.SetTooltip(enabled
+                    ? $"{entry.Tooltip}\n\nNasce nella SCENA, non in questa cartella."
+                    : "Il gioco non ha dichiarato un SceneComponentRegistry fra le sue Resource,\n" +
+                      "quindi l'editor non sa con quali valori nasce un MeshRenderer o una Luce.\n" +
+                      "Resta creabile \"Vuoto\", che non ha bisogno di nessun default.");
+            }
+        }
+
+        ImGui.EndMenu();
     }
 
     // I tre "Open*" armano la modale e la aprono. Separati dal disegno perche' l'apertura puo'
